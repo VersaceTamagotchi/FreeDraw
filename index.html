@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fcfbf7">
+  <meta name="description" content="Un lienzo libre para dibujar a mano, conectar ideas y guardar tus pizarras.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ec785d'/%3E%3Cpath d='M6 20C10 12 19 5 22 6S16 16 12 22C15 20 19 14 22 14S20 21 21 22S24 21 26 19' fill='none' stroke='%23fffaf3' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="app/styles.css">
+  <title>FreeDraw · Pizarra</title>
+  <script defer src="app/scene.js"></script>
+  <script defer src="app/files.js"></script>
+  <script defer src="app/editor.js"></script>
+  <script defer src="app/main.js"></script>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" class="icon-definitions" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="fd-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
+      <symbol id="fd-undo" viewBox="0 0 24 24"><path d="m8 5-4 4 4 4M4 9h10a5.5 5.5 0 0 1 0 11h-2"/></symbol>
+      <symbol id="fd-redo" viewBox="0 0 24 24"><path d="m16 5 4 4-4 4m4-4H10a5.5 5.5 0 0 0 0 11h2"/></symbol>
+      <symbol id="fd-library" viewBox="0 0 24 24"><rect x="3.5" y="4" width="6" height="6" rx="1.3"/><rect x="14" y="4" width="6" height="6" rx="1.3"/><rect x="3.5" y="14" width="6" height="6" rx="1.3"/><rect x="14" y="14" width="6" height="6" rx="1.3"/></symbol>
+      <symbol id="fd-export" viewBox="0 0 24 24"><path d="M12 14.5V3.8m-4 4.1 4-4.1 4 4.1M4.5 13v4.7a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2V13"/></symbol>
+      <symbol id="fd-grid" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="5" cy="5" r="1.6"/><circle cx="12" cy="5" r="1.6"/><circle cx="19" cy="5" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/><circle cx="5" cy="19" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="19" cy="19" r="1.6"/></g></symbol>
+      <symbol id="fd-style" viewBox="0 0 24 24"><path d="M4 7h7m5 0h4M4 17h3m5 0h8"/><circle cx="13.5" cy="7" r="2.5"/><circle cx="9.5" cy="17" r="2.5"/></symbol>
+      <symbol id="fd-select" viewBox="0 0 24 24"><path d="m5.7 3.8 13.5 9-6.4 1.1-3.2 5.9z"/></symbol>
+      <symbol id="fd-hand" viewBox="0 0 24 24"><path d="M8.6 13.6V6.9a1.3 1.3 0 0 1 2.6 0v4.7-6.9a1.3 1.3 0 0 1 2.6 0v6.6-5.2a1.3 1.3 0 0 1 2.6 0v6.2-4a1.3 1.3 0 0 1 2.6 0v6.2c0 4.1-2.3 6.4-5.8 6.4-2.2 0-3.7-.8-5.3-2.8l-3.5-4.8c-.8-1.2.8-2.8 1.9-1.7z"/></symbol>
+      <symbol id="fd-rect" viewBox="0 0 24 24"><rect x="4.2" y="5.2" width="15.6" height="13.6" rx="1.4"/></symbol>
+      <symbol id="fd-diamond" viewBox="0 0 24 24"><path d="M11.2 3.7a1.1 1.1 0 0 1 1.6 0l7.5 7.5a1.1 1.1 0 0 1 0 1.6l-7.5 7.5a1.1 1.1 0 0 1-1.6 0l-7.5-7.5a1.1 1.1 0 0 1 0-1.6z"/></symbol>
+      <symbol id="fd-ellipse" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.1"/></symbol>
+      <symbol id="fd-arrow" viewBox="0 0 24 24"><path d="M4.2 19.5 19.4 4.3m-7.9 0h8v8"/></symbol>
+      <symbol id="fd-line" viewBox="0 0 24 24"><path d="m4.6 19.4 14.8-14.8"/></symbol>
+      <symbol id="fd-pen" viewBox="0 0 24 24"><path d="M4.3 19.8 5.5 15l10.2-10.2a2.1 2.1 0 0 1 3 0l.5.5a2.1 2.1 0 0 1 0 3L9 18.5zM13.9 6.6l3.5 3.5M5.5 15l3.5 3.5"/></symbol>
+      <symbol id="fd-text" viewBox="0 0 24 24"><path d="M4.5 7V4.9h15V7M12 5v14.1m-3.6.1h7.2"/></symbol>
+      <symbol id="fd-note" viewBox="0 0 24 24"><path d="M19.5 13.8 14 19.5H6.1a1.6 1.6 0 0 1-1.6-1.6V6.1a1.6 1.6 0 0 1 1.6-1.6h11.8a1.6 1.6 0 0 1 1.6 1.6zM14 19.3v-4a1.5 1.5 0 0 1 1.5-1.5h3.8"/></symbol>
+      <symbol id="fd-eraser" viewBox="0 0 24 24"><path d="m4.2 13.9 8.7-9a2.1 2.1 0 0 1 3 0l3.3 3.2a2.1 2.1 0 0 1 0 3l-8.1 8.4H8.9l-4.7-4.3a.9.9 0 0 1 0-1.3zM9 9l6.3 6.2M10 19.5h10"/></symbol>
+      <symbol id="fd-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+      <symbol id="fd-plus" viewBox="0 0 24 24"><path d="M5 12h14m-7-7v14"/></symbol>
+      <symbol id="fd-fit" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v4m11-5h4a1 1 0 0 1 1 1v4M4 15v4a1 1 0 0 0 1 1h4m6 0h4a1 1 0 0 0 1-1v-4"/></symbol>
+      <symbol id="fd-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M9.6 9.3a2.5 2.5 0 1 1 4.2 1.8c-1.1.8-1.8 1.2-1.8 2.5m0 2.8h.01"/></symbol>
+      <symbol id="fd-mouse" viewBox="0 0 24 24"><rect x="6.5" y="2.9" width="11" height="18.2" rx="5.5"/><path d="M12 7v3"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="topbar" aria-label="Barra de la pizarra">
+    <div class="workspace-heading">
+      <div class="brand" aria-label="FreeDraw">
+        <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#EE8068"/><path d="M6.7 22.5C10.9 15.9 21.3 5.7 24.7 6.9c3.4 1.3-7.6 11.8-11.2 18.3 4.3-3.6 8.3-9.4 11.3-9.6 3.8-.2-2.4 7.2-1 8.6 1 1 3.8-1.5 5.7-3.5" fill="none" stroke="#fffdf6" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>FreeDraw</span>
+      </div>
+      <span class="header-rule" aria-hidden="true"></span>
+      <button type="button" id="board-menu" class="board-switch" aria-label="Menú de la pizarra" aria-haspopup="true" aria-expanded="false"><span id="board-title">Mapa de producto</span><svg class="icon chevron" aria-hidden="true"><use href="#fd-chevron"/></svg></button>
+      <span id="save-status" role="status">Guardado localmente</span>
+    </div>
+    <div class="header-actions">
+      <div class="history-actions" role="group" aria-label="Historial">
+        <button type="button" id="undo" class="icon-button" aria-label="Deshacer" title="Deshacer"><svg class="icon" aria-hidden="true"><use href="#fd-undo"/></svg></button>
+        <button type="button" id="redo" class="icon-button" aria-label="Rehacer" title="Rehacer"><svg class="icon" aria-hidden="true"><use href="#fd-redo"/></svg></button>
+      </div>
+      <span class="header-rule action-rule" aria-hidden="true"></span>
+      <button type="button" id="library-button" class="header-button library-button" aria-label="Biblioteca de plantillas" aria-haspopup="dialog" title="Biblioteca de plantillas"><svg class="icon" aria-hidden="true"><use href="#fd-library"/></svg><span>Biblioteca</span></button>
+      <button type="button" id="export-button" class="header-button primary-button" aria-label="Exportar pizarra" aria-haspopup="dialog" title="Exportar pizarra"><svg class="icon" aria-hidden="true"><use href="#fd-export"/></svg><span>Exportar</span></button>
+    </div>
+  </header>
+
+  <main id="stage" aria-label="Área de dibujo">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg" tabindex="0" aria-label="Lienzo de dibujo interactivo"><g id="objects"></g><g id="selection"></g></svg>
+    <button type="button" id="grid-button" class="stage-button grid-button" aria-label="Mostrar u ocultar la cuadrícula" aria-pressed="true" title="Mostrar u ocultar la cuadrícula"><svg class="icon" aria-hidden="true"><use href="#fd-grid"/></svg><span>Cuadrícula</span></button>
+    <button type="button" id="style-button" class="stage-button style-button" aria-label="Estilo de dibujo" aria-haspopup="true" aria-expanded="false" title="Estilo de dibujo"><svg class="icon" aria-hidden="true"><use href="#fd-style"/></svg><span>Estilo</span></button>
+
+    <nav class="tool-rail" aria-label="Herramientas de dibujo">
+      <button type="button" class="tool is-active" data-tool="select" aria-pressed="true" aria-label="Seleccionar" title="Seleccionar (V)"><svg class="icon" aria-hidden="true"><use href="#fd-select"/></svg></button>
+      <button type="button" class="tool" data-tool="hand" aria-pressed="false" aria-label="Mover el lienzo" title="Mover el lienzo (H)"><svg class="icon" aria-hidden="true"><use href="#fd-hand"/></svg></button>
+      <span class="rail-rule" aria-hidden="true"></span>
+      <button type="button" class="tool" data-tool="rect" aria-pressed="false" aria-label="Rectángulo" title="Rectángulo (R)"><svg class="icon" aria-hidden="true"><use href="#fd-rect"/></svg></button>
+      <button type="button" class="tool" data-tool="diamond" aria-pressed="false" aria-label="Rombo" title="Rombo (D)"><svg class="icon" aria-hidden="true"><use href="#fd-diamond"/></svg></button>
+      <button type="button" class="tool" data-tool="ellipse" aria-pressed="false" aria-label="Elipse" title="Elipse (O)"><svg class="icon" aria-hidden="true"><use href="#fd-ellipse"/></svg></button>
+      <button type="button" class="tool" data-tool="arrow" aria-pressed="false" aria-label="Flecha" title="Flecha (A)"><svg class="icon" aria-hidden="true"><use href="#fd-arrow"/></svg></button>
+      <button type="button" class="tool" data-tool="line" aria-pressed="false" aria-label="Línea" title="Línea (L)"><svg class="icon" aria-hidden="true"><use href="#fd-line"/></svg></button>
+      <span class="rail-rule" aria-hidden="true"></span>
+      <button type="button" class="tool" data-tool="pen" aria-pressed="false" aria-label="Dibujar a mano" title="Dibujar a mano (P)"><svg class="icon" aria-hidden="true"><use href="#fd-pen"/></svg></button>
+      <button type="button" class="tool" data-tool="text" aria-pressed="false" aria-label="Texto" title="Texto (T)"><svg class="icon" aria-hidden="true"><use href="#fd-text"/></svg></button>
+      <button type="button" class="tool" data-tool="note" aria-pressed="false" aria-label="Nota adhesiva" title="Nota adhesiva (N)"><svg class="icon" aria-hidden="true"><use href="#fd-note"/></svg></button>
+      <button type="button" class="tool" data-tool="eraser" aria-pressed="false" aria-label="Borrador" title="Borrador (E)"><svg class="icon" aria-hidden="true"><use href="#fd-eraser"/></svg></button>
+    </nav>
+
+    <div class="zoom-controls" role="group" aria-label="Controles de zoom">
+      <button type="button" id="zoom-out" class="icon-button" aria-label="Reducir zoom" title="Reducir zoom"><svg class="icon" aria-hidden="true"><use href="#fd-minus"/></svg></button>
+      <button type="button" id="zoom-value" class="zoom-value" aria-label="Restablecer zoom" title="Restablecer zoom">100%</button>
+      <button type="button" id="zoom-in" class="icon-button" aria-label="Aumentar zoom" title="Aumentar zoom"><svg class="icon" aria-hidden="true"><use href="#fd-plus"/></svg></button>
+      <span class="mini-rule" aria-hidden="true"></span>
+      <button type="button" id="fit" class="icon-button" aria-label="Ajustar al contenido" title="Ajustar al contenido"><svg class="icon" aria-hidden="true"><use href="#fd-fit"/></svg></button>
+    </div>
+    <div class="hint-bar"><svg class="icon" aria-hidden="true"><use href="#fd-mouse"/></svg><span id="hint">Arrastra para seleccionar · <kbd>Espacio</kbd> para mover el lienzo</span></div>
+    <button type="button" id="help" class="help-button" aria-label="Ayuda y atajos de teclado" aria-haspopup="dialog" title="Ayuda y atajos de teclado"><svg class="icon" aria-hidden="true"><use href="#fd-help"/></svg></button>
+  </main>
+
+  <div id="popover" class="popover" hidden></div>
+  <dialog id="dialog" class="dialog" aria-label="Opciones de la pizarra"></dialog>
+  <textarea id="text-editor" aria-label="Editar texto del lienzo" spellcheck="true" hidden></textarea>
+  <div id="toast" role="status" hidden></div>
+  <input type="file" id="import-file" accept=".freedraw,.json,.excalidraw,application/json" hidden>
+  <noscript>Activa JavaScript para abrir la pizarra de FreeDraw.</noscript>
+</body>
+</html>
