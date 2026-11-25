@@ -284,5 +284,7 @@
     }
   }
 
-  window.FreeDrawFiles = { saveJSON, saveSVG, savePNG, readFile, parseBoard, makeSVG };
+  const api = { saveJSON, saveSVG, savePNG, readFile, parseBoard, makeSVG };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else window.FreeDrawFiles = api;
 })();

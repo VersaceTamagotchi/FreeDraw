@@ -45,3 +45,11 @@ FreeDraw también importa formas básicas, texto, flechas y trazos de archivos `
 ## Código
 
 La interfaz está en `index.html` y `app/styles.css`. `app/editor.js` gestiona interacciones e historial, `app/scene.js` dibuja los elementos SVG y crea las plantillas, `app/files.js` importa y exporta archivos y `app/main.js` conecta la interfaz con los tableros locales.
+
+## Pruebas
+
+Las pruebas de importación, geometría y ajuste de texto se ejecutan desde la raíz del repositorio con Node.js 18 o posterior.
+
+```sh
+node --test
+```

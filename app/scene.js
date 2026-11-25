@@ -527,5 +527,7 @@
     return createExample();
   }
 
-  window.FreeDrawScene = {SANS, drawElement, bounds, heightForShapeText, textAlignment, textSize, createExample, createTemplate};
+  const api = {SANS, drawElement, bounds, heightForShapeText, textAlignment, textSize, createExample, createTemplate, wrapLines};
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else window.FreeDrawScene = api;
 })();

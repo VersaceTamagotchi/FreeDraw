@@ -103,6 +103,24 @@
     return { x: a.x + Math.cos(angle) * length, y: a.y + Math.sin(angle) * length };
   }
 
+  function snapEndpoint(el, key, p, objects, zoom) {
+    let nearest = null, position = p, best = 14 / zoom;
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const shape = objects[i];
+      if (!containers.has(shape.type) || shape.w <= 0 || shape.h <= 0) continue;
+      if (p.x < shape.x - best || p.x > shape.x + shape.w + best || p.y < shape.y - best || p.y > shape.y + shape.h + best) continue;
+      const q = perimeterPoint(shape, p), error = distance(q, p);
+      if (error < best) {
+        best = error;
+        position = q;
+        nearest = { id: shape.id, u: clamp((q.x - shape.x) / shape.w, 0, 1), v: clamp((q.y - shape.y) / shape.h, 0, 1) };
+      }
+    }
+    const pts = worldPoints(el);
+    pts[key === "startBinding" ? 0 : pts.length - 1] = position;
+    return setPath(nearest ? { ...el, [key]: nearest } : withoutBinding(el, key), pts);
+  }
+
   function createEditor({ svg, group, overlay, onChange, onSelection, onView, onEditText, onTool }) {
     const { drawElement, bounds } = window.FreeDrawScene;
     const defaults = { stroke: "#292d2b", fill: "none", width: 2.2, fontSize: 23 };
@@ -122,24 +140,6 @@
     const toWorld = point => ({ x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom });
     const localPoint = event => toLocal(event.clientX, event.clientY);
     const worldPoint = event => toWorld(localPoint(event));
-
-    function snapEndpoint(el, key, p, objects) {
-      let nearest = null, position = p, best = 14 / view.zoom;
-      for (let i = objects.length - 1; i >= 0; i--) {
-        const shape = objects[i];
-        if (!containers.has(shape.type) || shape.w <= 0 || shape.h <= 0) continue;
-        if (p.x < shape.x - best || p.x > shape.x + shape.w + best || p.y < shape.y - best || p.y > shape.y + shape.h + best) continue;
-        const q = perimeterPoint(shape, p), error = distance(q, p);
-        if (error < best) {
-          best = error;
-          position = q;
-          nearest = { id: shape.id, u: clamp((q.x - shape.x) / shape.w, 0, 1), v: clamp((q.y - shape.y) / shape.h, 0, 1) };
-        }
-      }
-      const pts = worldPoints(el);
-      pts[key === "startBinding" ? 0 : pts.length - 1] = position;
-      return setPath(nearest ? { ...el, [key]: nearest } : withoutBinding(el, key), pts);
-    }
 
     function followBindings(objects, moved) {
       const byId = new Map(objects.map(el => [el.id, el]));
@@ -644,7 +644,7 @@
             const pts = worldPoints(el), first = g.handle === "first";
             const opposite = pts[first ? Math.min(1, pts.length - 1) : Math.max(0, pts.length - 2)];
             const point = event.shiftKey ? shortestAngleEnd(opposite, p) : p;
-            if (el.type === "arrow") return snapEndpoint(el, first ? "startBinding" : "endBinding", point, g.before);
+            if (el.type === "arrow") return snapEndpoint(el, first ? "startBinding" : "endBinding", point, g.before, view.zoom);
             pts[first ? 0 : pts.length - 1] = point;
             return setPath(el, pts);
           });
@@ -664,8 +664,8 @@
             const endPoint = event.shiftKey ? shortestAngleEnd(g.start, p) : p;
             drawn = setPath(el, [g.start, endPoint]);
             if (el.type === "arrow") {
-              drawn = snapEndpoint(drawn, "startBinding", g.start, g.before);
-              drawn = snapEndpoint(drawn, "endBinding", endPoint, g.before);
+              drawn = snapEndpoint(drawn, "startBinding", g.start, g.before, view.zoom);
+              drawn = snapEndpoint(drawn, "endBinding", endPoint, g.before, view.zoom);
             }
           } else if (el.type !== "text") {
             let end = p;
@@ -703,8 +703,8 @@
           const delta = el.type === "pen" ? 0.15 : 94;
           el = setPath(el, [g.start, { x: g.start.x + delta, y: g.start.y + (el.type === "pen" ? 0.15 : 0) }]);
           if (el.type === "arrow") {
-            el = snapEndpoint(el, "startBinding", g.start, g.before);
-            el = snapEndpoint(el, "endBinding", { x: g.start.x + delta, y: g.start.y }, g.before);
+            el = snapEndpoint(el, "startBinding", g.start, g.before, view.zoom);
+            el = snapEndpoint(el, "endBinding", { x: g.start.x + delta, y: g.start.y }, g.before, view.zoom);
           }
         }
         scene = [...g.before, el];
@@ -885,5 +885,9 @@
     };
   }
 
-  window.createEditor = createEditor;
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { perimeterPoint, setPath, snapEndpoint };
+  } else {
+    window.createEditor = createEditor;
+  }
 })();
