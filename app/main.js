@@ -6,6 +6,9 @@
   const prefix = 'freedraw.board.v1.';
   const activeKey = 'freedraw.active.v1';
   const memory = new Map();
+  const storedVersions = new Map();
+  const localEdits = new Set();
+  const incomingVersions = new Map();
   const dialog = $('dialog');
   const popover = $('popover');
   const input = $('text-editor');
@@ -69,32 +72,59 @@
         const key = localStorage.key(i);
         if (!key?.startsWith(prefix)) continue;
         try {
-          const board = JSON.parse(localStorage.getItem(key));
-          if (board?.id && Array.isArray(board.elements) && !memory.has(board.id)) boards.set(board.id, board);
+          const raw = localStorage.getItem(key);
+          const board = JSON.parse(raw);
+          if (board?.id && Array.isArray(board.elements) && !memory.has(board.id)) {
+            storedVersions.set(board.id, raw);
+            boards.set(board.id, board);
+          }
         } catch { /* A single damaged record must not hide other boards. */ }
       }
     } catch { storageWorks = false; }
     return [...boards.values()].sort((a,b) => b.updated - a.updated);
   }
   function current() { return {title:active.title, elements:editor.getElements()}; }
-  function save() {
+  function saveStatus(saved) {
+    const status = $('save-status');
+    status.textContent = saved ? 'Guardado localmente' : 'Solo en memoria';
+    status.classList.toggle('save-warning', !saved);
+    status.title = saved ? 'Este tablero está guardado en este navegador' : 'Descarga el archivo editable para conservar los cambios';
+    refreshControls();
+  }
+  function warnConflict() {
+    saveStatus(false);
+    persistentToast('conflict-notice','Este tablero cambió en otra pestaña','Recargar',() => {
+      const id = active.id;
+      finishText(true);
+      acceptIncoming(id,incomingVersions.get(id));
+    });
+  }
+  function save(changed = true) {
     if (loading || !active || !editor) return;
-    Object.assign(active, current(), {updated:Date.now()});
-    memory.set(active.id, active);
+    if (changed) {
+      localEdits.add(active.id);
+      Object.assign(active, current(), {updated:Date.now()});
+    }
+    const id = active.id;
+    memory.set(id, active);
     try {
-      localStorage.setItem(prefix + active.id, JSON.stringify(active));
-      localStorage.setItem(activeKey, active.id);
+      const raw = localStorage.getItem(prefix + id);
+      if (raw !== (storedVersions.get(id) ?? null)) incomingVersions.set(id,raw);
+      if (incomingVersions.has(id)) {
+        warnConflict();
+        return;
+      }
+      const serialized = JSON.stringify(active);
+      if (raw !== serialized) localStorage.setItem(prefix + id, serialized);
+      storedVersions.set(id,serialized);
+      localStorage.setItem(activeKey, id);
       storageWorks = true;
       $('storage-notice')?.remove();
     } catch {
       storageWorks = false;
       persistentToast('storage-notice','No se pudo guardar el tablero en este navegador.','Descargar copia',() => download('JSON'));
     }
-    const status = $('save-status');
-    status.textContent = storageWorks ? 'Guardado localmente' : 'Solo en memoria';
-    status.classList.toggle('save-warning', !storageWorks);
-    status.title = storageWorks ? 'Este tablero está guardado en este navegador' : 'Descarga el archivo editable para conservar los cambios';
-    refreshControls();
+    saveStatus(storageWorks);
   }
   const freshBoard = (title,elements = []) => ({
     id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'board-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2),
@@ -102,12 +132,13 @@
   });
   function openBoard(board) {
     closePopover(); finishText(false); loading = true;
+    $('conflict-notice')?.remove();
     active = board;
     editor.load(board.elements);
     editor.setTool('select'); editor.fit();
     $('board-title').textContent = board.title;
     document.title = board.title + ' · FreeDraw';
-    loading = false; save();
+    loading = false; save(false);
   }
   function refreshControls() {
     if (!editor) return;
@@ -230,6 +261,9 @@
         return;
       }
       memory.delete(board.id);
+      storedVersions.delete(board.id);
+      localEdits.delete(board.id);
+      incomingVersions.delete(board.id);
       openBoard(listBoards()[0] || freshBoard('Tablero sin título'));
     });
     actions.append(cancel,confirm);
@@ -404,15 +438,47 @@
     openBoard(boards.find(b=>b.id===last) || boards[0] || freshBoard('Mapa de producto',scene.createExample()));
     toolChanged('select'); refreshControls();
   }
+  function acceptIncoming(id,raw) {
+    let board;
+    if (raw !== null) {
+      try { board = JSON.parse(raw); } catch { return; }
+      if (board?.id !== id || !Array.isArray(board.elements)) return;
+    }
+    incomingVersions.delete(id);
+    localEdits.delete(id);
+    if (board) {
+      storedVersions.set(id,raw);
+      memory.set(id,board);
+    } else {
+      storedVersions.delete(id);
+      memory.delete(id);
+    }
+    if (active?.id !== id) return;
+    $('conflict-notice')?.remove();
+    if (!board) {
+      openBoard(listBoards()[0] || freshBoard('Tablero sin título'));
+      return;
+    }
+    active = board;
+    loading = true;
+    const view = editor.getView();
+    editor.load(board.elements);
+    editor.setView(view);
+    loading = false;
+    $('board-title').textContent = board.title;
+    document.title = board.title + ' · FreeDraw';
+    saveStatus(true);
+  }
   window.addEventListener('storage',event=>{
-    if (!event.key?.startsWith(prefix) || !event.newValue) return;
-    let board; try {board=JSON.parse(event.newValue);} catch {return;}
-    if (!board?.id || !Array.isArray(board.elements)) return;
-    memory.set(board.id,board);
-    if (active?.id===board.id && active.updated < board.updated && !editId) {
-      active=board; loading=true; const view=editor.getView();
-      editor.load(board.elements);editor.setView(view); loading=false;
-      $('board-title').textContent=board.title;document.title=board.title+' · FreeDraw'; refreshControls();
+    if (!event.key?.startsWith(prefix)) return;
+    const id = event.key.slice(prefix.length);
+    if (event.newValue === storedVersions.get(id)) return;
+    const editing = active?.id === id && (editId || JSON.stringify(editor.getElements()) !== JSON.stringify(active.elements));
+    if (localEdits.has(id) || editing || incomingVersions.has(id)) {
+      incomingVersions.set(id,event.newValue);
+      if (active?.id === id) warnConflict();
+    } else {
+      acceptIncoming(id,event.newValue);
     }
   });
   init();
