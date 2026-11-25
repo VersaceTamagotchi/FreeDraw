@@ -289,14 +289,37 @@
       setView({ x: anchor.x - world.x * zoom, y: anchor.y - world.y * zoom, zoom });
     }
 
+    function visibleArea() {
+      const canvas = svg.getBoundingClientRect();
+      const area = { left: 0, top: 0, right: canvas.width, bottom: canvas.height };
+      const controls = svg.parentElement.querySelectorAll(".tool-rail, .zoom-controls, .grid-button, .style-button, .hint-bar, .help-button");
+      for (const control of controls) {
+        const rect = control.getBoundingClientRect();
+        if (!rect.width || !rect.height) continue;
+        if (control.matches(".grid-button, .style-button")) {
+          area.top = Math.max(area.top, rect.bottom - canvas.top);
+        } else if (control.matches(".tool-rail") && getComputedStyle(control).flexDirection === "column") {
+          area.left = Math.max(area.left, rect.right - canvas.left);
+        } else {
+          area.bottom = Math.min(area.bottom, rect.top - canvas.top);
+        }
+      }
+      return area;
+    }
+
     function fit() {
       const box = union(scene.map(bounds));
-      const { width, height } = svg.getBoundingClientRect();
-      if (!width || !height) return;
       if (!box) { setView({ x: 0, y: 0, zoom: 1 }); return; }
-      const padX = Math.min(72, width * 0.075), padY = Math.min(72, height * 0.10);
-      const zoom = clamp(Math.min((width - padX * 2) / Math.max(1, box.w), (height - padY * 2) / Math.max(1, box.h)), 0.05, 1.1);
-      setView({ x: (width - box.w * zoom) / 2 - box.x * zoom, y: (height - box.h * zoom) / 2 - box.y * zoom, zoom });
+      const area = visibleArea();
+      const width = area.right - area.left, height = area.bottom - area.top;
+      if (width <= 0 || height <= 0) return;
+      const padding = Math.min(28, width * .05, height * .05);
+      const zoom = clamp(Math.min((width - padding * 2) / Math.max(1, box.w), (height - padding * 2) / Math.max(1, box.h)), 0.05, 1.1);
+      setView({
+        x: area.left + (width - box.w * zoom) / 2 - box.x * zoom,
+        y: area.top + (height - box.h * zoom) / 2 - box.y * zoom,
+        zoom
+      });
     }
 
     function commit(before) {
