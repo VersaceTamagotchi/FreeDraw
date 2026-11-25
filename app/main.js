@@ -356,7 +356,12 @@
     const list = node('div','help-grid');
     const entries = [...Object.entries(shortcuts).map(([key,tool])=>[labels[tool],key.toUpperCase()]),
       ['Mover el lienzo','Espacio + arrastrar'],['Deshacer','Ctrl / ⌘ + Z'],['Rehacer','Ctrl / ⌘ + Shift + Z'],
-      ['Ajustar a pantalla','Shift + 1'],['Editar texto','Doble clic'],['Salto de línea','Shift + Enter']];
+      ['Ajustar a pantalla','Shift + 1'],['Editar texto','Doble clic'],['Salto de línea','Shift + Enter'],
+      ['Copiar','Ctrl / ⌘ + C'],['Cortar','Ctrl / ⌘ + X'],['Pegar','Ctrl / ⌘ + V'],
+      ['Duplicar la selección','Ctrl / ⌘ + D'],['Seleccionar todo','Ctrl / ⌘ + A'],['Eliminar la selección','Supr'],
+      ['Mover la selección 1 px','Flechas'],['Mover la selección 10 px','Shift + flechas'],
+      ['Dibujar una figura proporcionada o una línea a 45°','Shift + arrastrar'],
+      ['Descargar el tablero editable','Ctrl / ⌘ + S'],['Abrir un archivo','Ctrl / ⌘ + O']];
     for (const [label,key] of entries) { const row=node('div','help-row'); row.append(node('span','',label),node('kbd','',key)); list.append(row); }
     dialog.append(list);
   }

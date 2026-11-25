@@ -34,7 +34,12 @@ FreeDraw también importa formas básicas, texto, flechas y trazos de archivos `
 | Acercar o alejar | + / −, o Ctrl / ⌘ + rueda |
 | Encuadrar el dibujo completo | Shift + 1 |
 | Deshacer / rehacer | Ctrl / ⌘ + Z / Ctrl / ⌘ + Shift + Z |
+| Copiar / cortar / pegar | Ctrl / ⌘ + C, X o V |
 | Duplicar la selección | Ctrl / ⌘ + D |
+| Seleccionar todo | Ctrl / ⌘ + A |
+| Eliminar la selección | Supr |
+| Mover la selección 1 px / 10 px | Flechas / Shift + flechas |
+| Mantener la proporción de la figura o trazar líneas y flechas en ángulos de 45° | Shift + arrastrar |
 | Descargar el archivo editable / abrir archivo | Ctrl / ⌘ + S / Ctrl / ⌘ + O |
 
 ## Código
