@@ -442,7 +442,7 @@
           Object.assign(next, window.FreeDrawScene.textSize(next));
         } else {
           next.h = window.FreeDrawScene.heightForShapeText(next);
-          if (el.text === value && el.h === next.h) return;
+          if (!fresh && el.text === value && el.h === next.h) return;
         }
         scene = scene.map(item => item.id === key ? next : item);
         if (el.h !== next.h) scene = followBindings(scene, new Set([key]));
@@ -452,7 +452,11 @@
     }
 
     function cancelText(key) {
-      if (pendingText?.id === key) updateText(key, "");
+      if (pendingText?.id !== key) return;
+      scene = pendingText.before;
+      pendingText = null;
+      select(selected.filter(item => item !== key));
+      render();
     }
 
     function cancelGesture() {
@@ -665,9 +669,12 @@
         scene = [...g.before, el];
         if (el.type !== "pen") { setTool("select"); select([el.id]); }
         render();
-        if (el.type === "text" && onEditText) pendingText = { id: el.id, before: g.before };
-        else commit(g.before);
-        if (el.type === "text" || el.type === "note") onEditText?.(clone(el));
+        if ((el.type === "text" || el.type === "note") && onEditText) {
+          pendingText = { id: el.id, before: g.before };
+          onEditText(clone(el));
+        } else {
+          commit(g.before);
+        }
       } else {
         render();
         if (g.before) commit(g.before);
