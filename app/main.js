@@ -203,8 +203,31 @@
       active.title = name; $('board-title').textContent = name; document.title = name + ' · FreeDraw'; save();
     });
   }
+  function deleteBoardDialog() {
+    const board = active;
+    showDialog('Eliminar tablero');
+    dialog.append(node('p','dialog-description','¿Quieres eliminar «' + board.title + '»?'));
+    const actions = node('div','dialog-actions');
+    const cancel = button('secondary-button','Cancelar',() => dialog.close());
+    const confirm = button('primary-button','Eliminar tablero',() => {
+      dialog.close();
+      try {
+        localStorage.removeItem(prefix + board.id);
+      } catch {
+        toast('No se pudo eliminar el tablero de este navegador');
+        return;
+      }
+      memory.delete(board.id);
+      openBoard(listBoards()[0] || freshBoard('Tablero sin título'));
+    });
+    actions.append(cancel,confirm);
+    dialog.append(actions);
+    cancel.focus();
+  }
   function boardMenu() {
     popover.append(item('plus','Nuevo tablero',() => nameDialog(false)),item('edit','Renombrar',() => nameDialog(true)),
+      item('copy','Duplicar tablero',() => openBoard(freshBoard('Copia de ' + active.title, editor.getElements()))),
+      item('delete','Eliminar tablero',deleteBoardDialog),
       item('folder','Abrir archivo…',() => { closePopover(); $('import-file').click(); },'Ctrl O'),node('hr','menu-separator'),
       node('div','popover-title','Mis tableros'));
     for (const board of listBoards()) {
