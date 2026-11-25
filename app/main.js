@@ -190,9 +190,15 @@
     }
   });
 
-  function closePopover() {
-    if (anchor) anchor.setAttribute('aria-expanded','false');
+  function closePopover(restoreFocus = false) {
+    if (anchor) {
+      anchor.setAttribute('aria-expanded','false');
+      if (restoreFocus) anchor.focus();
+    }
     anchor = null; popover.hidden = true;
+  }
+  function popoverButtons() {
+    return [...popover.querySelectorAll('button:not(:disabled)')];
   }
   function positionPopover() {
     if (!anchor || popover.hidden) return;
@@ -207,7 +213,24 @@
     anchor = trigger; anchor.setAttribute('aria-expanded','true');
     popover.replaceChildren(); make();
     popover.hidden = false; positionPopover();
+    popoverButtons()[0]?.focus();
   }
+  popover.addEventListener('keydown',event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closePopover(true);
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      const buttons = popoverButtons();
+      const index = buttons.indexOf(document.activeElement);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      buttons[(index + step + buttons.length) % buttons.length]?.focus();
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.stopPropagation();
+    }
+  });
   function item(name,text,action,suffix) {
     const el = button('menu-item','',action);
     el.append(icon(name), node('span','',text));
@@ -338,8 +361,10 @@
     } catch (error) { toast(error.message || 'No se pudo abrir el archivo'); }
   }
   function setStyle(prop,value) {
+    const focused = popoverButtons().indexOf(document.activeElement);
     editor.setStyle({[prop]:value});
     popover.replaceChildren(); styleMenu(); positionPopover();
+    popoverButtons()[focused]?.focus();
   }
   function styleChoices(title,property,options,values) {
     if (!values.length) return;
@@ -445,7 +470,7 @@
     const key=e.key.toLowerCase(), mod=e.ctrlKey || e.metaKey;
     if (mod && ['s','o'].includes(key)) { e.preventDefault(); if(key==='s')download('JSON');else $('import-file').click();return; }
     if (mod || e.altKey) return;
-    if (key==='escape') { closePopover(); return; }
+    if (key==='escape' && anchor) { e.preventDefault(); e.stopPropagation(); closePopover(true); return; }
     if (key==='?') {e.preventDefault();helpDialog();return;}
     if (e.shiftKey && e.code==='Digit1') {e.preventDefault();editor.fit();return;}
     if (key==='+' || key==='=' || key==='-') {e.preventDefault();editor.setZoom(editor.getView().zoom*(key==='-'?.8:1.25));return;}
