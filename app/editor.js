@@ -475,6 +475,19 @@
       try { svg.setPointerCapture(event.pointerId); } catch { /* Pointer may already be gone. */ }
     }
 
+    function newTextAt(p) {
+      return { id: id(), type: "text", ...defaults, x: p.x, y: p.y, w: 140, h: defaults.fontSize * 1.4, text: "" };
+    }
+
+    function editNewElement(el, before) {
+      if ((el.type === "text" || el.type === "note") && onEditText) {
+        pendingText = { id: el.id, before };
+        onEditText(clone(el));
+      } else {
+        commit(before);
+      }
+    }
+
     function begin(event) {
       if (event.button !== 0 && event.button !== 1) return;
       // Commit the floating text area's blur before capturing a new canvas action.
@@ -524,9 +537,8 @@
         gesture = { ...session, kind: "move" };
         return;
       }
-      const el = { id: id(), type: tool, x: p.x, y: p.y, w: 0, h: 0, ...defaults };
+      const el = tool === "text" ? newTextAt(p) : { id: id(), type: tool, x: p.x, y: p.y, w: 0, h: 0, ...defaults };
       if (tool === "note" && (!el.fill || el.fill === "none" || el.fill === "transparent")) el.fill = "#ffebad";
-      if (tool === "text") { el.text = ""; el.w = 140; el.h = el.fontSize * 1.4; }
       if (paths.has(tool)) { el.points = [[0, 0], [0, 0]]; el.fill = "none"; }
       gesture = { ...session, kind: "draw", el, pts: [p] };
       scene = [...scene, el];
@@ -669,12 +681,7 @@
         scene = [...g.before, el];
         if (el.type !== "pen") { setTool("select"); select([el.id]); }
         render();
-        if ((el.type === "text" || el.type === "note") && onEditText) {
-          pendingText = { id: el.id, before: g.before };
-          onEditText(clone(el));
-        } else {
-          commit(g.before);
-        }
+        editNewElement(el, g.before);
       } else {
         render();
         if (g.before) commit(g.before);
@@ -724,8 +731,17 @@
     listen(svg, "lostpointercapture", event => { if (pointers.has(event.pointerId)) end(event, true); });
     listen(svg, "dblclick", event => {
       if (tool !== "select") return;
-      const el = hit(worldPoint(event), event.target);
-      if (el && editable.has(el.type)) { select([el.id]); onEditText?.(clone(el)); }
+      const p = worldPoint(event), el = hit(p, event.target);
+      if (el) {
+        if (editable.has(el.type)) { select([el.id]); onEditText?.(clone(el)); }
+        return;
+      }
+      if (event.target.closest?.("[data-handle]")) return;
+      const before = scene, text = newTextAt(p);
+      scene = [...scene, text];
+      select([text.id]);
+      render();
+      editNewElement(text, before);
     });
     listen(svg, "wheel", event => {
       event.preventDefault();
