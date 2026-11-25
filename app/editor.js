@@ -413,7 +413,7 @@
         scene = fresh ? before : scene.filter(item => item.id !== key);
         select(selected.filter(item => item !== key));
       } else {
-        if (el.text === value) return;
+        if (el.type === "text" && el.text === value) return;
         let next = { ...el, text: value };
         if (el.type === "text") {
           const fontSize = el.fontSize || defaults.fontSize, lines = value.split(/\r?\n/);
@@ -422,8 +422,12 @@
           const longest = Math.max(...lines.map(line => ctx ? ctx.measureText(line).width : Array.from(line).length * fontSize * 0.62));
           next.w = Math.max(12, Math.ceil(longest * 1.1) + 6);
           next.h = Math.max(fontSize * 1.35, lines.length * fontSize * 1.35);
+        } else {
+          next.h = window.FreeDrawScene.heightForShapeText(next);
+          if (el.text === value && el.h === next.h) return;
         }
         scene = scene.map(item => item.id === key ? next : item);
+        if (el.h !== next.h) scene = followBindings(scene, new Set([key]));
       }
       render();
       commit(before);

@@ -176,13 +176,17 @@
   }
 
   let measureContext;
-  function wrapLines(value, width, size, weight = 400) {
+  function textMeasure(size, weight) {
     if (measureContext === undefined) {
       try { measureContext = document.createElement("canvas").getContext("2d"); }
       catch { measureContext = null; }
     }
     if (measureContext) measureContext.font = `${weight} ${size}px ${SANS}`;
-    const measure = text => measureContext ? measureContext.measureText(text).width : text.length * size * .54;
+    return text => measureContext ? measureContext.measureText(text).width : text.length * size * .54;
+  }
+
+  function wrapLines(value, width, size, weight = 400) {
+    const measure = textMeasure(size, weight);
     const lines = [];
     for (const paragraph of value.split("\n")) {
       let line = "";
@@ -194,10 +198,65 @@
         } else {
           line = combined;
         }
+        if (line === word && measure(word) > width) {
+          line = "";
+          for (const character of word) {
+            if (line && measure(line + character) > width) {
+              lines.push(line);
+              line = "";
+            }
+            line += character;
+          }
+        }
       }
       lines.push(line);
     }
     return lines;
+  }
+
+  function visibleLines(lines, count, width, size, weight) {
+    if (count >= lines.length) return lines;
+    if (count < 1) return ["…"];
+    const visible = lines.slice(0, count);
+    const measure = textMeasure(size, weight);
+    const last = Array.from(visible[count - 1].trimEnd());
+    while (last.length && measure(last.join("") + "…") > width) last.pop();
+    visible[count - 1] = last.join("") + "…";
+    return visible;
+  }
+
+  function shapeLayout(el, w) {
+    const size = Math.max(4, num(el.fontSize, el.type === "note" ? 20 : 18));
+    const weight = num(el.weight, 500);
+    const width = Math.max(3, el.type === "diamond" ? w * .59 : el.type === "ellipse" ? w * .74 : w - 12);
+    const heightFraction = el.type === "diamond" ? .41 : el.type === "ellipse" ? .67 : 1;
+    const lines = wrapLines(String(el.text || ""), width, size, weight);
+    return {lines, size, weight, width, heightFraction, lineHeight: size * 1.22};
+  }
+
+  function phaseLayout(el, w, scale) {
+    const [label = "", ...paragraphs] = String(el.text || "").split("\n");
+    const width = Math.max(1, w - 15 * scale);
+    const titleSize = Math.max(4, num(el.fontSize, 31)) * scale;
+    const title = wrapLines(label, width, titleSize, 700);
+    const size = 15.4 * scale;
+    const lines = paragraphs.length ? wrapLines(paragraphs.join("\n"), width, size) : [];
+    const lineHeight = size * 1.22;
+    const titleHeight = title.length * titleSize * 1.22 - titleSize * .22;
+    const requiredHeight = 2 * (titleHeight + 3 * scale + lines.length * lineHeight);
+    return {width, title, titleSize, titleHeight, lines, size, lineHeight, requiredHeight};
+  }
+
+  function heightForShapeText(el) {
+    if (!el.text) return el.h;
+    const {w, h} = bounds(el);
+    if (el.type === "note" && el.variant === "phase") {
+      const scale = Math.max(.1, Math.min(w / 210, h / 176));
+      if (phaseLayout(el, w, scale).requiredHeight <= h) return h;
+      return Math.max(h, Math.ceil(phaseLayout(el, w, Math.max(.1, w / 210)).requiredHeight));
+    }
+    const {lines, lineHeight, heightFraction} = shapeLayout(el, w);
+    return Math.max(h, Math.ceil((4 + lines.length * lineHeight) / heightFraction));
   }
 
   function nativeText(group, value, x, baseline, size, color, options = {}) {
@@ -274,14 +333,18 @@
     const iconSize = 44 * scale;
     const baseline = h / 2 - 6 * scale;
     drawIcon(group, el.icon, (w - iconSize) / 2, baseline - 54 * scale, iconSize, color);
-    const [label = "", ...paragraphs] = String(el.text || "").split("\n");
-    const titleSize = Math.max(4, num(el.fontSize, 31)) * scale;
-    handLine(group, label, w / 2, baseline + scale, titleSize, color, {center: true, bold: true});
-    const size = 15.4 * scale;
-    const lines = wrapLines(paragraphs.join("\n"), Math.max(1, w - 15 * scale), size);
-    const available = h - baseline - titleSize - 9 * scale;
-    lines.slice(0, Math.max(0, Math.floor(available / (size * 1.2)))).forEach((line, i) =>
-      nativeText(group, line, w / 2, baseline + titleSize + 15 * scale + i * size * 1.22, size, color, {anchor: "middle"}));
+    const {width: textWidth, title, titleSize, titleHeight, lines, size, lineHeight} = phaseLayout(el, w, scale);
+    const available = h - baseline - 9 * scale;
+    const titleCapacity = Math.floor((available + .22 * titleSize) / (1.22 * titleSize));
+    const count = Math.floor((available - titleHeight) / lineHeight);
+    const onlyTitleFits = count < 1 && lines.length > 0;
+    const headings = onlyTitleFits ? visibleLines([...title, ""], Math.min(titleCapacity, title.length), textWidth, titleSize, 700)
+      : visibleLines(title, titleCapacity, textWidth, titleSize, 700);
+    headings.forEach((line, i) =>
+      handLine(group, line, w / 2, baseline + scale + i * titleSize * 1.22, titleSize, color, {center: true, bold: true}));
+    if (count < 1 || !lines.length) return;
+    visibleLines(lines, count, textWidth, size, 400).forEach((line, i) =>
+      nativeText(group, line, w / 2, baseline + titleHeight + 15 * scale + i * lineHeight, size, color, {anchor: "middle"}));
   }
 
   function drawShape(group, el, w, h, color, fill, width) {
@@ -296,14 +359,12 @@
     }
     const value = String(el.text || "");
     if (!value) return;
-    const size = Math.max(4, num(el.fontSize, el.type === "note" ? 20 : 18));
-    const contentWidth = el.type === "diamond" ? w * .59 : w - 12;
-    const lines = wrapLines(value, Math.max(3, contentWidth), size);
-    const lineHeight = size * 1.22;
-    const visible = lines.slice(0, Math.max(1, Math.floor((h - 4) / lineHeight)));
+    const {lines, size, weight, width: textWidth, lineHeight, heightFraction} = shapeLayout(el, w);
+    const count = Math.floor((h * heightFraction - 4) / lineHeight);
+    const visible = visibleLines(lines, count, textWidth, size, weight);
     const start = (h - (visible.length - 1) * lineHeight) / 2 + size * .32;
     visible.forEach((line, i) => nativeText(group, line, w / 2, start + i * lineHeight, size, color,
-      {anchor: "middle", weight: num(el.weight, 500)}));
+      {anchor: "middle", weight}));
   }
 
   function drawElement(el) {
@@ -427,5 +488,5 @@
     return createExample();
   }
 
-  window.FreeDrawScene = {drawElement, bounds, createExample, createTemplate};
+  window.FreeDrawScene = {drawElement, bounds, heightForShapeText, createExample, createTemplate};
 })();
