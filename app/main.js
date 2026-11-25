@@ -341,10 +341,26 @@
     editor.setStyle({[prop]:value});
     popover.replaceChildren(); styleMenu(); positionPopover();
   }
+  function styleChoices(title,property,options,values) {
+    if (!values.length) return;
+    const row = node('div','width-options style-choices');
+    row.setAttribute('role','group');
+    row.setAttribute('aria-label',title);
+    for (const [value,label] of options) {
+      const btn = button('width-choice',label,() => setStyle(property,value));
+      btn.setAttribute('aria-pressed',String(values.every(current => current === value)));
+      row.append(btn);
+    }
+    popover.append(node('div','popover-title',title),row);
+  }
   function styleMenu() {
     const selected = new Set(editor.getSelection());
-    const el = editor.getElements().find(e=>selected.has(e.id));
+    const elements = editor.getElements().filter(e=>selected.has(e.id));
+    const el = elements[0];
     const style = {...editor.getStyle(),...el};
+    const targets = el ? elements : [{...style,type:editor.getTool()}];
+    const drawable = targets.filter(target => !['text','eraser','hand'].includes(target.type));
+    const textTargets = targets.filter(target => ['text','note','rect','diamond','ellipse'].includes(target.type));
     const palette = [['#343431','Grafito'],['#d76d54','Coral'],['#46765e','Bosque'],['#725a9e','Violeta'],['#386e94','Azul']];
     const fills = [['none','Sin relleno'],['#fbd9c6','Durazno'],['#d8e8d4','Salvia'],['#e5dcf6','Lavanda'],['#f8e8ae','Arena']];
     for (const [prop,label,colors] of [['stroke','Trazo',palette],['fill','Relleno',fills]]) {
@@ -368,7 +384,10 @@
       const sample = node('span'); sample.style.height = width+'px'; btn.append(sample); row.append(btn);
     }
     popover.append(row);
-    if ((el && ['text','note','rect','diamond','ellipse'].includes(el.type)) || ['text','note'].includes(editor.getTool())) {
+    styleChoices('Tipo de línea','dash',[['solid','Continua'],['dashed','Discontinua']],drawable.map(target => target.dash || 'solid'));
+    styleChoices('Opacidad','opacity',[[1,'100%'],[.75,'75%'],[.5,'50%'],[.25,'25%']],targets.map(target => target.opacity ?? 1));
+    styleChoices('Alineación de texto','align',[['left','Izquierda'],['center','Centro'],['right','Derecha']],textTargets.map(scene.textAlignment));
+    if (textTargets.length) {
       popover.append(node('div','popover-title','Tamaño de texto'));
       const sizes = node('div','width-options');
       for (const size of [16,24,32,48]) {

@@ -95,14 +95,15 @@
     const shapes = characters.map(glyph);
     if (shapes.some(item => !item)) {
       group.append(svg("text", {x, y: top + size * .85, fill: color, stroke: "none",
-        "text-anchor": options.center ? "middle" : "start", "font-size": size,
+        "text-anchor": options.anchor, "font-size": size,
         "font-family": HAND, "font-weight": options.bold ? 700 : 500}, value));
       return;
     }
     const unit = size / 18;
     const spacing = options.bold ? 1.65 : 1.35;
     const fullWidth = shapes.reduce((sum, [width]) => sum + width + spacing, 0);
-    const start = options.center ? x - (fullWidth - spacing) * unit / 2 : x;
+    const advance = (fullWidth - spacing) * unit;
+    const start = options.anchor === "middle" ? x - advance / 2 : options.anchor === "end" ? x - advance : x;
     const run = svg("g", {transform: `translate(${start} ${top}) scale(${unit})`,
       stroke: color, fill: "none", "stroke-width": options.bold ? 1.7 : 1.16,
       "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"});
@@ -289,19 +290,32 @@
     return {w: Math.max(12, Math.ceil(longest * 1.1) + 6), h: lines.length * size * 1.35};
   }
 
+  function textAlignment(el) {
+    if (["center", "middle"].includes(el.align)) return "center";
+    if (["right", "end"].includes(el.align)) return "right";
+    if (["left", "start"].includes(el.align)) return "left";
+    return el.type === "text" ? "left" : "center";
+  }
+
+  function textPosition(el, width, textWidth = width) {
+    const align = textAlignment(el);
+    if (align === "left") return {x: (width - textWidth) / 2, anchor: "start"};
+    if (align === "right") return {x: (width + textWidth) / 2, anchor: "end"};
+    return {x: width / 2, anchor: "middle"};
+  }
+
   function drawText(group, el, w, h, color) {
     const size = Math.max(4, num(el.fontSize, 23)), value = String(el.text || "");
-    const center = ["center", "middle"].includes(el.align);
-    const right = ["end", "right"].includes(el.align);
+    const {x, anchor} = textPosition(el, w);
     hitBox(group, 0, 0, w, h);
     const lines = value.split("\n");
     for (const [index, line] of lines.entries()) {
       const top = index * size * 1.24;
       if (["heading", "hand", "annotation"].includes(el.variant)) {
-        handLine(group, line, center ? w / 2 : 0, top, size, color, {center, bold: el.variant === "heading"});
+        handLine(group, line, x, top, size, color, {anchor, bold: el.variant === "heading"});
       } else {
-        nativeText(group, line, center ? w / 2 : right ? w : 0, top + size * .91, size, color, {
-          anchor: center ? "middle" : right ? "end" : "start", font: el.variant === "label" ? MONO : SANS,
+        nativeText(group, line, x, top + size * .91, size, color, {
+          anchor, font: el.variant === "label" ? MONO : SANS,
           spacing: el.variant === "label" ? 2.1 : undefined,
           weight: num(el.weight, el.variant === "label" ? 700 : 400)
         });
@@ -349,7 +363,8 @@
   function drawPhase(group, el, w, h, color, fill, width) {
     const body = roughBox(w, h, 12);
     path(group, body, {fill: color, stroke: "none", opacity: .1, transform: "translate(2.8 3.8)"});
-    path(group, body, {fill, stroke: color, "stroke-width": width});
+    path(group, body, {fill, stroke: color, "stroke-width": width,
+      "stroke-dasharray": el.dash === "dashed" ? `${width * 3} ${width * 3}` : undefined});
     path(group, `M${w * .73} ${h - 3.1}q${w * .099} .95 ${w * .159} -.25`,
       {stroke: color, fill: "none", "stroke-width": .75, opacity: .33});
     const scale = Math.max(.1, Math.min(w / 210, h / 176));
@@ -357,6 +372,7 @@
     const baseline = h / 2 - 6 * scale;
     drawIcon(group, el.icon, (w - iconSize) / 2, baseline - 54 * scale, iconSize, color);
     const {width: textWidth, title, titleSize, titleHeight, lines, size, lineHeight} = phaseLayout(el, w, scale);
+    const {x, anchor} = textPosition(el, w, textWidth);
     const available = h - baseline - 9 * scale;
     const titleCapacity = Math.floor((available + .22 * titleSize) / (1.22 * titleSize));
     const count = Math.floor((available - titleHeight) / lineHeight);
@@ -364,10 +380,10 @@
     const headings = onlyTitleFits ? visibleLines([...title, ""], Math.min(titleCapacity, title.length), textWidth, titleSize, 700)
       : visibleLines(title, titleCapacity, textWidth, titleSize, 700);
     headings.forEach((line, i) =>
-      handLine(group, line, w / 2, baseline + scale + i * titleSize * 1.22, titleSize, color, {center: true, bold: true}));
+      handLine(group, line, x, baseline + scale + i * titleSize * 1.22, titleSize, color, {anchor, bold: true}));
     if (count < 1 || !lines.length) return;
     visibleLines(lines, count, textWidth, size, 400).forEach((line, i) =>
-      nativeText(group, line, w / 2, baseline + titleHeight + 15 * scale + i * lineHeight, size, color, {anchor: "middle"}));
+      nativeText(group, line, x, baseline + titleHeight + 15 * scale + i * lineHeight, size, color, {anchor}));
   }
 
   function drawShape(group, el, w, h, color, fill, width) {
@@ -383,11 +399,11 @@
     const value = String(el.text || "");
     if (!value) return;
     const {lines, size, weight, width: textWidth, lineHeight, heightFraction} = shapeLayout(el, w);
+    const {x, anchor} = textPosition(el, w, textWidth);
     const count = Math.floor((h * heightFraction - 4) / lineHeight);
     const visible = visibleLines(lines, count, textWidth, size, weight);
     const start = (h - (visible.length - 1) * lineHeight) / 2 + size * .32;
-    visible.forEach((line, i) => nativeText(group, line, w / 2, start + i * lineHeight, size, color,
-      {anchor: "middle", weight}));
+    visible.forEach((line, i) => nativeText(group, line, x, start + i * lineHeight, size, color, {anchor, weight}));
   }
 
   function drawElement(el) {
@@ -511,5 +527,5 @@
     return createExample();
   }
 
-  window.FreeDrawScene = {SANS, drawElement, bounds, heightForShapeText, textSize, createExample, createTemplate};
+  window.FreeDrawScene = {SANS, drawElement, bounds, heightForShapeText, textAlignment, textSize, createExample, createTemplate};
 })();

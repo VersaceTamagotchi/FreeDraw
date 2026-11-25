@@ -104,6 +104,7 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .width-choice:hover { background: #f3f0e9; }
 .width-choice[aria-pressed="true"] { background: var(--coral-pale); border-color: #edc3b4; }
 .width-choice > span { display: block; width: 16px; border-radius: 3px; background: currentColor; }
+.style-choices .width-choice { padding: 0 5px; font-size: 12px; }
 
 .dialog { position: fixed; inset: 0; width: min(520px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; color: var(--ink); border: 1px solid var(--line); border-radius: 18px; background: #fffefa; box-shadow: 0 20px 70px #30251b26; }
 .dialog::backdrop { background: #322d253c; }
