@@ -176,12 +176,12 @@
   }
 
   let measureContext;
-  function textMeasure(size, weight) {
+  function textMeasure(size, weight, family = SANS) {
     if (measureContext === undefined) {
       try { measureContext = document.createElement("canvas").getContext("2d"); }
       catch { measureContext = null; }
     }
-    if (measureContext) measureContext.font = `${weight} ${size}px ${SANS}`;
+    if (measureContext) measureContext.font = `${weight} ${size}px ${family}`;
     return text => measureContext ? measureContext.measureText(text).width : text.length * size * .54;
   }
 
@@ -264,6 +264,29 @@
       "font-family": options.font || SANS, "font-weight": options.weight || 400,
       "letter-spacing": options.spacing, "text-anchor": options.anchor || "start",
       "dominant-baseline": "alphabetic", "xml:space": "preserve"}, value));
+  }
+
+  function textSize(el) {
+    const size = Math.max(4, num(el.fontSize, 23));
+    const lines = String(el.text || "").split("\n");
+    const label = el.variant === "label";
+    const hand = ["heading", "hand", "annotation"].includes(el.variant);
+    const weight = hand ? (el.variant === "heading" ? 700 : 500) : num(el.weight, label ? 700 : 400);
+    const measure = textMeasure(size, weight, hand ? HAND : label ? MONO : SANS);
+    let longest = 0;
+    for (const line of lines) {
+      let width = measure(line);
+      if (label) width += Array.from(line).length * 2.1;
+      if (hand && line) {
+        const shapes = Array.from(line, glyph);
+        const spacing = el.variant === "heading" ? 1.65 : 1.35;
+        if (shapes.every(Boolean)) {
+          width = shapes.reduce((sum, [advance]) => sum + advance + spacing, -spacing) * size / 18;
+        }
+      }
+      longest = Math.max(longest, width);
+    }
+    return {w: Math.max(12, Math.ceil(longest * 1.1) + 6), h: lines.length * size * 1.35};
   }
 
   function drawText(group, el, w, h, color) {
@@ -488,5 +511,5 @@
     return createExample();
   }
 
-  window.FreeDrawScene = {drawElement, bounds, heightForShapeText, createExample, createTemplate};
+  window.FreeDrawScene = {SANS, drawElement, bounds, heightForShapeText, textSize, createExample, createTemplate};
 })();

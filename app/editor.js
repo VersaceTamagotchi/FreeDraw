@@ -416,12 +416,7 @@
         if (el.type === "text" && el.text === value) return;
         let next = { ...el, text: value };
         if (el.type === "text") {
-          const fontSize = el.fontSize || defaults.fontSize, lines = value.split(/\r?\n/);
-          const ctx = document.createElement("canvas").getContext("2d");
-          if (ctx) ctx.font = fontSize + "px " + (el.fontFamily || "sans-serif");
-          const longest = Math.max(...lines.map(line => ctx ? ctx.measureText(line).width : Array.from(line).length * fontSize * 0.62));
-          next.w = Math.max(12, Math.ceil(longest * 1.1) + 6);
-          next.h = Math.max(fontSize * 1.35, lines.length * fontSize * 1.35);
+          Object.assign(next, window.FreeDrawScene.textSize(next));
         } else {
           next.h = window.FreeDrawScene.heightForShapeText(next);
           if (el.text === value && el.h === next.h) return;
