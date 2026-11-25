@@ -109,7 +109,7 @@
     let scene = [], selected = [], tool = "select";
     let view = { x: 0, y: 0, zoom: 1 };
     let gesture = null, space = false, pendingText = null;
-    let clipboard = [], pastes = 0;
+    let clipboard = [], clipboardWrite = null, keyboardCopy = null, lastPayload = "", pastes = 0;
     const pointers = new Map(), rendered = new Map(), undoStack = [], redoStack = [];
     const listeners = new AbortController();
     const listen = (target, name, callback, options = {}) => target.addEventListener(name, callback, { ...options, signal: listeners.signal });
@@ -718,9 +718,83 @@
       cursor();
     }
 
+    function editingField(target) {
+      return target?.closest?.("input, textarea, select, [contenteditable='true'], [role='dialog']") || document.querySelector("dialog[open]");
+    }
+
+    function copySelection(cut) {
+      clipboard = selectedItems();
+      pastes = 0;
+      lastPayload = JSON.stringify({ format: "freedraw-clipboard", elements: clipboard });
+      const write = { payload: lastPayload, copied: false };
+      clipboardWrite = write;
+      try {
+        navigator.clipboard?.writeText(write.payload).then(() => { write.copied = true; }, () => {});
+      } catch { /* El navegador puede limitar el acceso al portapapeles del sistema. */ }
+      if (cut) removeSelected();
+      return write;
+    }
+
+    function copyEvent(event) {
+      if (editingField(event.target)) return;
+      const write = keyboardCopy || (selected.length && copySelection(event.type === "cut"));
+      if (!write || !event.clipboardData) return;
+      try {
+        event.clipboardData.setData("text/plain", write.payload);
+        event.preventDefault();
+        write.copied = true;
+      } catch { /* La copia interna sigue disponible. */ }
+    }
+
+    function pasteCopies(elements, payload) {
+      if (!elements.length) return;
+      pastes = payload === lastPayload ? pastes + 1 : 1;
+      lastPayload = payload;
+      addCopies(elements, 16 * pastes / view.zoom);
+    }
+
+    function pasteValue(value) {
+      if (!value) {
+        if (clipboard.length) pasteCopies(clipboard, clipboardWrite.payload);
+        return;
+      }
+      let data;
+      try { data = JSON.parse(value); } catch { /* El texto normal también se puede pegar. */ }
+      if (data?.format === "freedraw-clipboard") {
+        try {
+          const { elements } = window.FreeDrawFiles.parseBoard({ format: "freedraw", elements: data.elements });
+          pasteCopies(elements, value);
+        } catch { /* Ignora selecciones con un formato de elementos inválido. */ }
+        return;
+      }
+
+      const before = scene;
+      const rect = svg.getBoundingClientRect();
+      const center = toWorld({ x: rect.width / 2, y: rect.height / 2 });
+      const el = { ...newTextAt(center), text: value.replace(/\r\n?/g, "\n") };
+      Object.assign(el, window.FreeDrawScene.textSize(el));
+      el.x -= el.w / 2;
+      el.y -= el.h / 2;
+      scene = [...scene, el];
+      setTool("select");
+      select([el.id]);
+      render();
+      commit(before);
+    }
+
+    function pasteEvent(event) {
+      if (event.defaultPrevented || editingField(event.target)) return;
+      let value;
+      try { value = event.clipboardData?.getData("text/plain"); }
+      catch { /* Usa la última selección copiada si el sistema deniega la lectura. */ }
+      if (!value && !clipboard.length) return;
+      event.preventDefault();
+      pasteValue(value);
+    }
+
     function keydown(event) {
       const target = event.target;
-      if (event.defaultPrevented || event.isComposing || target?.closest?.("input, textarea, select, [contenteditable='true'], [role='dialog']") || document.querySelector("dialog[open]")) return;
+      if (event.defaultPrevented || event.isComposing || editingField(target)) return;
       const key = event.key.toLowerCase(), command = event.ctrlKey || event.metaKey;
       if (command && !event.altKey) {
         if (key === "z") restore(event.shiftKey ? redoStack : undoStack, event.shiftKey ? undoStack : redoStack);
@@ -728,12 +802,15 @@
         else if (key === "a") { setTool("select"); select(scene.map(el => el.id)); }
         else if (key === "d") addCopies(selectedItems(), 16 / view.zoom);
         else if ((key === "c" || key === "x") && selected.length) {
-          clipboard = selectedItems();
-          pastes = 0;
-          if (key === "x") removeSelected();
-        } else if (key === "v" && clipboard.length) {
-          pastes++;
-          addCopies(clipboard, 16 * pastes / view.zoom);
+          keyboardCopy = copySelection(key === "x");
+          return;
+        } else if (key === "v" && clipboard.length && !clipboardWrite.copied) {
+          pasteCopies(clipboard, clipboardWrite.payload);
+        } else if (key === "v" && (/Mac|iPhone|iPad/.test(navigator.platform) ? event.ctrlKey : event.metaKey)) {
+          // El modificador alternativo no genera un evento paste nativo.
+          const read = navigator.clipboard?.readText();
+          if (read) read.then(pasteValue, () => pasteValue(""));
+          else pasteValue("");
         } else return;
       } else if (key === " " && !target?.closest?.("button,a")) { space = true; cursor(); }
       else if (key === "escape") { if (gesture) cancelGesture(); else { setTool("select"); select([]); } }
@@ -782,8 +859,14 @@
         setView({ ...view, x: view.x - x * unit, y: view.y - y * unit });
       }
     }, { passive: false });
+    listen(window, "copy", copyEvent);
+    listen(window, "cut", copyEvent);
+    listen(window, "paste", pasteEvent);
     listen(window, "keydown", keydown);
-    listen(window, "keyup", event => { if (event.code === "Space") { space = false; cursor(); } });
+    listen(window, "keyup", event => {
+      keyboardCopy = null;
+      if (event.code === "Space") { space = false; cursor(); }
+    });
     listen(window, "blur", () => { space = false; pointers.clear(); cancelGesture(); cursor(); });
     cursor();
 

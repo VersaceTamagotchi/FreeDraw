@@ -175,6 +175,10 @@
     } catch {
       throw new Error('El archivo no contiene un tablero JSON válido.');
     }
+    return parseBoard(data, file.name);
+  }
+
+  function parseBoard(data, filename = '') {
     if (!data || !Array.isArray(data.elements)) throw new Error('El archivo no contiene una lista de elementos.');
     if (data.elements.length > 20000) throw new Error('El tablero supera el límite de 20 000 elementos.');
     const foreign = data.type === 'excalidraw' || data.type === 'excalidraw/clipboard';
@@ -182,7 +186,7 @@
         (data.version != null && data.version !== 1))) {
       throw new Error('Esta versión o formato de tablero no es compatible.');
     }
-    const fallbackName = String(file.name || '').replace(/(?:\.freedraw)?\.(?:json|excalidraw|freedraw)$/i, '');
+    const fallbackName = String(filename || '').replace(/(?:\.freedraw)?\.(?:json|excalidraw|freedraw)$/i, '');
     const title = boardTitle(data.title || data.appState?.name || fallbackName);
     const context = { ids: new Set(), points: 0 };
     const elements = [], warnings = [];
@@ -280,5 +284,5 @@
     }
   }
 
-  window.FreeDrawFiles = { saveJSON, saveSVG, savePNG, readFile, makeSVG };
+  window.FreeDrawFiles = { saveJSON, saveSVG, savePNG, readFile, parseBoard, makeSVG };
 })();
