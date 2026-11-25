@@ -118,13 +118,20 @@
     }, 3600);
   }
 
-  function persistentToast(id, message, label, action) {
+  function persistentToast(id, message, ...actions) {
     if ($(id)) return;
     const notice = node("div", "toast");
     notice.id = id;
     notice.setAttribute("role", "status");
-    notice.append(node("span", "", message), button("", label, action));
+    notice.append(node("span", "", message));
+    for (const [label, action] of actions) notice.append(button("", label, action));
     $("toasts").prepend(notice);
+  }
+
+  function readStoredBoard(key) {
+    const raw = localStorage.getItem(key);
+    const board = JSON.parse(raw);
+    if (board?.id && key === prefix + board.id && Array.isArray(board.elements)) return { board, raw };
   }
 
   function listBoards() {
@@ -134,10 +141,8 @@
         const key = localStorage.key(i);
         if (!key?.startsWith(prefix)) continue;
         try {
-          const raw = localStorage.getItem(key);
-          const board = JSON.parse(raw);
-          if (board?.id && Array.isArray(board.elements) && !memory.has(board.id)) {
-            storedVersions.set(board.id, raw);
+          const board = readStoredBoard(key)?.board;
+          if (board && !localEdits.has(board.id) && !incomingVersions.has(board.id)) {
             boards.set(board.id, board);
           }
         } catch {
@@ -164,41 +169,66 @@
     refreshControls();
   }
 
-  function warnConflict() {
-    saveStatus(false);
-    persistentToast("conflict-notice", "Este tablero cambió en otra pestaña", "Recargar", () => {
-      const id = active.id;
-      finishText(true);
-      acceptIncoming(id, incomingVersions.get(id));
-    });
+  function latestIncoming(id, fallback) {
+    try {
+      return localStorage.getItem(prefix + id);
+    } catch {
+      return fallback;
+    }
   }
 
-  function save(changed = true) {
+  function warnConflict() {
+    saveStatus(false);
+    persistentToast(
+      "conflict-notice",
+      "Este tablero cambió en otra pestaña",
+      ["Recargar", () => {
+        const id = active.id;
+        finishText(true);
+        acceptIncoming(id, latestIncoming(id, incomingVersions.get(id)));
+      }],
+      ["Conservar mis cambios", () => {
+        finishText(false);
+        save(true, true);
+      }]
+    );
+  }
+
+  function save(changed = true, overwrite = false) {
     if (loading || !active || !editor) return;
+    const id = active.id;
+    // localEdits contiene solo los tableros con cambios locales pendientes de guardar.
     if (changed) {
-      localEdits.add(active.id);
+      localEdits.add(id);
       Object.assign(active, current(), { updated: Date.now() });
     }
-    const id = active.id;
     memory.set(id, active);
     try {
       const raw = localStorage.getItem(prefix + id);
-      if (raw !== (storedVersions.get(id) ?? null)) incomingVersions.set(id, raw);
-      if (incomingVersions.has(id)) {
+      if (!overwrite && raw !== (storedVersions.get(id) ?? null)) incomingVersions.set(id, raw);
+      if (!overwrite && incomingVersions.has(id)) {
         warnConflict();
         return;
       }
       const serialized = JSON.stringify(active);
       if (raw !== serialized) localStorage.setItem(prefix + id, serialized);
       storedVersions.set(id, serialized);
-      localStorage.setItem(activeKey, id);
+      localEdits.delete(id);
+      incomingVersions.delete(id);
+      $("conflict-notice")?.remove();
       storageWorks = true;
       $("storage-notice")?.remove();
+      try {
+        localStorage.setItem(activeKey, id);
+      } catch {
+        /* El tablero ya está guardado aunque no se pueda recordar cuál estaba abierto. */
+      }
     } catch {
+      localEdits.add(id);
       storageWorks = false;
-      persistentToast("storage-notice", "No se pudo guardar el tablero en este navegador.", "Descargar copia", () =>
-        download("JSON")
-      );
+      persistentToast("storage-notice", "No se pudo guardar el tablero en este navegador.", [
+        "Descargar copia", () => download("JSON")
+      ]);
     }
     saveStatus(storageWorks);
   }
@@ -215,6 +245,20 @@
   function openBoard(board) {
     closePopover();
     finishText(false);
+    const id = board.id;
+    if (!localEdits.has(id) && !incomingVersions.has(id)) {
+      try {
+        const stored = readStoredBoard(prefix + id);
+        if (stored) {
+          board = stored.board;
+          storedVersions.set(id, stored.raw);
+        }
+      } catch {
+        /* Si el almacenamiento no está disponible, se abre la copia en memoria. */
+      }
+    } else {
+      board = memory.get(id) ?? board;
+    }
     loading = true;
     $("conflict-notice")?.remove();
     active = board;
@@ -884,14 +928,15 @@
   window.addEventListener("storage", event => {
     if (!event.key?.startsWith(prefix)) return;
     const id = event.key.slice(prefix.length);
-    if (event.newValue === storedVersions.get(id)) return;
+    const raw = latestIncoming(id, event.newValue);
+    if (raw === storedVersions.get(id) && !incomingVersions.has(id)) return;
     const editing =
       active?.id === id && (editId || JSON.stringify(editor.getElements()) !== JSON.stringify(active.elements));
-    if (localEdits.has(id) || editing || incomingVersions.has(id)) {
-      incomingVersions.set(id, event.newValue);
+    if (localEdits.has(id) || editing) {
+      incomingVersions.set(id, raw);
       if (active?.id === id) warnConflict();
     } else {
-      acceptIncoming(id, event.newValue);
+      acceptIncoming(id, raw);
     }
   });
   init();
