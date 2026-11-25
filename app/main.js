@@ -54,6 +54,14 @@
     $('toast').textContent = message; $('toast').hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3600);
   }
+  function persistentToast(id,message,label,action) {
+    if ($(id)) return;
+    const notice = node('div','toast');
+    notice.id = id;
+    notice.setAttribute('role','status');
+    notice.append(node('span','',message),button('',label,action));
+    $('toasts').prepend(notice);
+  }
   function listBoards() {
     const boards = new Map(memory);
     try {
@@ -77,7 +85,11 @@
       localStorage.setItem(prefix + active.id, JSON.stringify(active));
       localStorage.setItem(activeKey, active.id);
       storageWorks = true;
-    } catch { storageWorks = false; }
+      $('storage-notice')?.remove();
+    } catch {
+      storageWorks = false;
+      persistentToast('storage-notice','No se pudo guardar el tablero en este navegador.','Descargar copia',() => download('JSON'));
+    }
     const status = $('save-status');
     status.textContent = storageWorks ? 'Guardado localmente' : 'Solo en memoria';
     status.classList.toggle('save-warning', !storageWorks);
