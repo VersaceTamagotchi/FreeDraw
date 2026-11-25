@@ -95,14 +95,15 @@
     const shapes = characters.map(glyph);
     if (shapes.some(item => !item)) {
       group.append(svg("text", {x, y: top + size * .85, fill: color, stroke: "none",
-        "text-anchor": options.center ? "middle" : "start", "font-size": size,
+        "text-anchor": options.anchor, "font-size": size,
         "font-family": HAND, "font-weight": options.bold ? 700 : 500}, value));
       return;
     }
     const unit = size / 18;
     const spacing = options.bold ? 1.65 : 1.35;
     const fullWidth = shapes.reduce((sum, [width]) => sum + width + spacing, 0);
-    const start = options.center ? x - (fullWidth - spacing) * unit / 2 : x;
+    const advance = (fullWidth - spacing) * unit;
+    const start = options.anchor === "middle" ? x - advance / 2 : options.anchor === "end" ? x - advance : x;
     const run = svg("g", {transform: `translate(${start} ${top}) scale(${unit})`,
       stroke: color, fill: "none", "stroke-width": options.bold ? 1.7 : 1.16,
       "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true"});
@@ -176,13 +177,17 @@
   }
 
   let measureContext;
-  function wrapLines(value, width, size, weight = 400) {
+  function textMeasure(size, weight, family = SANS) {
     if (measureContext === undefined) {
       try { measureContext = document.createElement("canvas").getContext("2d"); }
       catch { measureContext = null; }
     }
-    if (measureContext) measureContext.font = `${weight} ${size}px ${SANS}`;
-    const measure = text => measureContext ? measureContext.measureText(text).width : text.length * size * .54;
+    if (measureContext) measureContext.font = `${weight} ${size}px ${family}`;
+    return text => measureContext ? measureContext.measureText(text).width : text.length * size * .54;
+  }
+
+  function wrapLines(value, width, size, weight = 400) {
+    const measure = textMeasure(size, weight);
     const lines = [];
     for (const paragraph of value.split("\n")) {
       let line = "";
@@ -194,10 +199,65 @@
         } else {
           line = combined;
         }
+        if (line === word && measure(word) > width) {
+          line = "";
+          for (const character of word) {
+            if (line && measure(line + character) > width) {
+              lines.push(line);
+              line = "";
+            }
+            line += character;
+          }
+        }
       }
       lines.push(line);
     }
     return lines;
+  }
+
+  function visibleLines(lines, count, width, size, weight) {
+    if (count >= lines.length) return lines;
+    if (count < 1) return ["…"];
+    const visible = lines.slice(0, count);
+    const measure = textMeasure(size, weight);
+    const last = Array.from(visible[count - 1].trimEnd());
+    while (last.length && measure(last.join("") + "…") > width) last.pop();
+    visible[count - 1] = last.join("") + "…";
+    return visible;
+  }
+
+  function shapeLayout(el, w) {
+    const size = Math.max(4, num(el.fontSize, el.type === "note" ? 20 : 18));
+    const weight = num(el.weight, 500);
+    const width = Math.max(3, el.type === "diamond" ? w * .59 : el.type === "ellipse" ? w * .74 : w - 12);
+    const heightFraction = el.type === "diamond" ? .41 : el.type === "ellipse" ? .67 : 1;
+    const lines = wrapLines(String(el.text || ""), width, size, weight);
+    return {lines, size, weight, width, heightFraction, lineHeight: size * 1.22};
+  }
+
+  function phaseLayout(el, w, scale) {
+    const [label = "", ...paragraphs] = String(el.text || "").split("\n");
+    const width = Math.max(1, w - 15 * scale);
+    const titleSize = Math.max(4, num(el.fontSize, 31)) * scale;
+    const title = wrapLines(label, width, titleSize, 700);
+    const size = 15.4 * scale;
+    const lines = paragraphs.length ? wrapLines(paragraphs.join("\n"), width, size) : [];
+    const lineHeight = size * 1.22;
+    const titleHeight = title.length * titleSize * 1.22 - titleSize * .22;
+    const requiredHeight = 2 * (titleHeight + 3 * scale + lines.length * lineHeight);
+    return {width, title, titleSize, titleHeight, lines, size, lineHeight, requiredHeight};
+  }
+
+  function heightForShapeText(el) {
+    if (!el.text) return el.h;
+    const {w, h} = bounds(el);
+    if (el.type === "note" && el.variant === "phase") {
+      const scale = Math.max(.1, Math.min(w / 210, h / 176));
+      if (phaseLayout(el, w, scale).requiredHeight <= h) return h;
+      return Math.max(h, Math.ceil(phaseLayout(el, w, Math.max(.1, w / 210)).requiredHeight));
+    }
+    const {lines, lineHeight, heightFraction} = shapeLayout(el, w);
+    return Math.max(h, Math.ceil((4 + lines.length * lineHeight) / heightFraction));
   }
 
   function nativeText(group, value, x, baseline, size, color, options = {}) {
@@ -207,19 +267,55 @@
       "dominant-baseline": "alphabetic", "xml:space": "preserve"}, value));
   }
 
+  function textSize(el) {
+    const size = Math.max(4, num(el.fontSize, 23));
+    const lines = String(el.text || "").split("\n");
+    const label = el.variant === "label";
+    const hand = ["heading", "hand", "annotation"].includes(el.variant);
+    const weight = hand ? (el.variant === "heading" ? 700 : 500) : num(el.weight, label ? 700 : 400);
+    const measure = textMeasure(size, weight, hand ? HAND : label ? MONO : SANS);
+    let longest = 0;
+    for (const line of lines) {
+      let width = measure(line);
+      if (label) width += Array.from(line).length * 2.1;
+      if (hand && line) {
+        const shapes = Array.from(line, glyph);
+        const spacing = el.variant === "heading" ? 1.65 : 1.35;
+        if (shapes.every(Boolean)) {
+          width = shapes.reduce((sum, [advance]) => sum + advance + spacing, -spacing) * size / 18;
+        }
+      }
+      longest = Math.max(longest, width);
+    }
+    return {w: Math.max(12, Math.ceil(longest * 1.1) + 6), h: lines.length * size * 1.35};
+  }
+
+  function textAlignment(el) {
+    if (["center", "middle"].includes(el.align)) return "center";
+    if (["right", "end"].includes(el.align)) return "right";
+    if (["left", "start"].includes(el.align)) return "left";
+    return el.type === "text" ? "left" : "center";
+  }
+
+  function textPosition(el, width, textWidth = width) {
+    const align = textAlignment(el);
+    if (align === "left") return {x: (width - textWidth) / 2, anchor: "start"};
+    if (align === "right") return {x: (width + textWidth) / 2, anchor: "end"};
+    return {x: width / 2, anchor: "middle"};
+  }
+
   function drawText(group, el, w, h, color) {
     const size = Math.max(4, num(el.fontSize, 23)), value = String(el.text || "");
-    const center = ["center", "middle"].includes(el.align);
-    const right = ["end", "right"].includes(el.align);
+    const {x, anchor} = textPosition(el, w);
     hitBox(group, 0, 0, w, h);
     const lines = value.split("\n");
     for (const [index, line] of lines.entries()) {
       const top = index * size * 1.24;
       if (["heading", "hand", "annotation"].includes(el.variant)) {
-        handLine(group, line, center ? w / 2 : 0, top, size, color, {center, bold: el.variant === "heading"});
+        handLine(group, line, x, top, size, color, {anchor, bold: el.variant === "heading"});
       } else {
-        nativeText(group, line, center ? w / 2 : right ? w : 0, top + size * .91, size, color, {
-          anchor: center ? "middle" : right ? "end" : "start", font: el.variant === "label" ? MONO : SANS,
+        nativeText(group, line, x, top + size * .91, size, color, {
+          anchor, font: el.variant === "label" ? MONO : SANS,
           spacing: el.variant === "label" ? 2.1 : undefined,
           weight: num(el.weight, el.variant === "label" ? 700 : 400)
         });
@@ -267,21 +363,27 @@
   function drawPhase(group, el, w, h, color, fill, width) {
     const body = roughBox(w, h, 12);
     path(group, body, {fill: color, stroke: "none", opacity: .1, transform: "translate(2.8 3.8)"});
-    path(group, body, {fill, stroke: color, "stroke-width": width});
+    path(group, body, {fill, stroke: color, "stroke-width": width,
+      "stroke-dasharray": el.dash === "dashed" ? `${width * 3} ${width * 3}` : undefined});
     path(group, `M${w * .73} ${h - 3.1}q${w * .099} .95 ${w * .159} -.25`,
       {stroke: color, fill: "none", "stroke-width": .75, opacity: .33});
     const scale = Math.max(.1, Math.min(w / 210, h / 176));
     const iconSize = 44 * scale;
     const baseline = h / 2 - 6 * scale;
     drawIcon(group, el.icon, (w - iconSize) / 2, baseline - 54 * scale, iconSize, color);
-    const [label = "", ...paragraphs] = String(el.text || "").split("\n");
-    const titleSize = Math.max(4, num(el.fontSize, 31)) * scale;
-    handLine(group, label, w / 2, baseline + scale, titleSize, color, {center: true, bold: true});
-    const size = 15.4 * scale;
-    const lines = wrapLines(paragraphs.join("\n"), Math.max(1, w - 15 * scale), size);
-    const available = h - baseline - titleSize - 9 * scale;
-    lines.slice(0, Math.max(0, Math.floor(available / (size * 1.2)))).forEach((line, i) =>
-      nativeText(group, line, w / 2, baseline + titleSize + 15 * scale + i * size * 1.22, size, color, {anchor: "middle"}));
+    const {width: textWidth, title, titleSize, titleHeight, lines, size, lineHeight} = phaseLayout(el, w, scale);
+    const {x, anchor} = textPosition(el, w, textWidth);
+    const available = h - baseline - 9 * scale;
+    const titleCapacity = Math.floor((available + .22 * titleSize) / (1.22 * titleSize));
+    const count = Math.floor((available - titleHeight) / lineHeight);
+    const onlyTitleFits = count < 1 && lines.length > 0;
+    const headings = onlyTitleFits ? visibleLines([...title, ""], Math.min(titleCapacity, title.length), textWidth, titleSize, 700)
+      : visibleLines(title, titleCapacity, textWidth, titleSize, 700);
+    headings.forEach((line, i) =>
+      handLine(group, line, x, baseline + scale + i * titleSize * 1.22, titleSize, color, {anchor, bold: true}));
+    if (count < 1 || !lines.length) return;
+    visibleLines(lines, count, textWidth, size, 400).forEach((line, i) =>
+      nativeText(group, line, x, baseline + titleHeight + 15 * scale + i * lineHeight, size, color, {anchor}));
   }
 
   function drawShape(group, el, w, h, color, fill, width) {
@@ -296,14 +398,12 @@
     }
     const value = String(el.text || "");
     if (!value) return;
-    const size = Math.max(4, num(el.fontSize, el.type === "note" ? 20 : 18));
-    const contentWidth = el.type === "diamond" ? w * .59 : w - 12;
-    const lines = wrapLines(value, Math.max(3, contentWidth), size);
-    const lineHeight = size * 1.22;
-    const visible = lines.slice(0, Math.max(1, Math.floor((h - 4) / lineHeight)));
+    const {lines, size, weight, width: textWidth, lineHeight, heightFraction} = shapeLayout(el, w);
+    const {x, anchor} = textPosition(el, w, textWidth);
+    const count = Math.floor((h * heightFraction - 4) / lineHeight);
+    const visible = visibleLines(lines, count, textWidth, size, weight);
     const start = (h - (visible.length - 1) * lineHeight) / 2 + size * .32;
-    visible.forEach((line, i) => nativeText(group, line, w / 2, start + i * lineHeight, size, color,
-      {anchor: "middle", weight: num(el.weight, 500)}));
+    visible.forEach((line, i) => nativeText(group, line, x, start + i * lineHeight, size, color, {anchor, weight}));
   }
 
   function drawElement(el) {
@@ -427,5 +527,7 @@
     return createExample();
   }
 
-  window.FreeDrawScene = {drawElement, bounds, createExample, createTemplate};
+  const api = {SANS, drawElement, bounds, heightForShapeText, textAlignment, textSize, createExample, createTemplate, wrapLines};
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else window.FreeDrawScene = api;
 })();

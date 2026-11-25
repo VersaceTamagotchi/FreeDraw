@@ -49,7 +49,7 @@
         <span>FreeDraw</span>
       </div>
       <span class="header-rule" aria-hidden="true"></span>
-      <button type="button" id="board-menu" class="board-switch" aria-label="Menú de la pizarra" aria-haspopup="true" aria-expanded="false"><span id="board-title">Mapa de producto</span><svg class="icon chevron" aria-hidden="true"><use href="#fd-chevron"/></svg></button>
+      <button type="button" id="board-menu" class="board-switch" aria-describedby="save-status" aria-label="Menú de la pizarra" aria-haspopup="true" aria-expanded="false"><span id="board-title">Mapa de producto</span><svg class="icon chevron" aria-hidden="true"><use href="#fd-chevron"/></svg></button>
       <span id="save-status" role="status">Guardado localmente</span>
     </div>
     <div class="header-actions">
@@ -98,7 +98,9 @@
   <div id="popover" class="popover" hidden></div>
   <dialog id="dialog" class="dialog" aria-label="Opciones de la pizarra"></dialog>
   <textarea id="text-editor" aria-label="Editar texto del lienzo" spellcheck="true" hidden></textarea>
-  <div id="toast" role="status" hidden></div>
+  <div id="toasts">
+    <div id="toast" class="toast" role="status" hidden></div>
+  </div>
   <input type="file" id="import-file" accept=".freedraw,.json,.excalidraw,application/json" hidden>
   <noscript>Activa JavaScript para abrir la pizarra de FreeDraw.</noscript>
 </body>

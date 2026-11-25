@@ -103,13 +103,31 @@
     return { x: a.x + Math.cos(angle) * length, y: a.y + Math.sin(angle) * length };
   }
 
+  function snapEndpoint(el, key, p, objects, zoom) {
+    let nearest = null, position = p, best = 14 / zoom;
+    for (let i = objects.length - 1; i >= 0; i--) {
+      const shape = objects[i];
+      if (!containers.has(shape.type) || shape.w <= 0 || shape.h <= 0) continue;
+      if (p.x < shape.x - best || p.x > shape.x + shape.w + best || p.y < shape.y - best || p.y > shape.y + shape.h + best) continue;
+      const q = perimeterPoint(shape, p), error = distance(q, p);
+      if (error < best) {
+        best = error;
+        position = q;
+        nearest = { id: shape.id, u: clamp((q.x - shape.x) / shape.w, 0, 1), v: clamp((q.y - shape.y) / shape.h, 0, 1) };
+      }
+    }
+    const pts = worldPoints(el);
+    pts[key === "startBinding" ? 0 : pts.length - 1] = position;
+    return setPath(nearest ? { ...el, [key]: nearest } : withoutBinding(el, key), pts);
+  }
+
   function createEditor({ svg, group, overlay, onChange, onSelection, onView, onEditText, onTool }) {
     const { drawElement, bounds } = window.FreeDrawScene;
     const defaults = { stroke: "#292d2b", fill: "none", width: 2.2, fontSize: 23 };
     let scene = [], selected = [], tool = "select";
     let view = { x: 0, y: 0, zoom: 1 };
     let gesture = null, space = false, pendingText = null;
-    let clipboard = [], pastes = 0;
+    let clipboard = [], clipboardWrite = null, keyboardCopy = null, lastPayload = "", pastes = 0;
     const pointers = new Map(), rendered = new Map(), undoStack = [], redoStack = [];
     const listeners = new AbortController();
     const listen = (target, name, callback, options = {}) => target.addEventListener(name, callback, { ...options, signal: listeners.signal });
@@ -122,24 +140,6 @@
     const toWorld = point => ({ x: (point.x - view.x) / view.zoom, y: (point.y - view.y) / view.zoom });
     const localPoint = event => toLocal(event.clientX, event.clientY);
     const worldPoint = event => toWorld(localPoint(event));
-
-    function snapEndpoint(el, key, p, objects) {
-      let nearest = null, position = p, best = 14 / view.zoom;
-      for (let i = objects.length - 1; i >= 0; i--) {
-        const shape = objects[i];
-        if (!containers.has(shape.type) || shape.w <= 0 || shape.h <= 0) continue;
-        if (p.x < shape.x - best || p.x > shape.x + shape.w + best || p.y < shape.y - best || p.y > shape.y + shape.h + best) continue;
-        const q = perimeterPoint(shape, p), error = distance(q, p);
-        if (error < best) {
-          best = error;
-          position = q;
-          nearest = { id: shape.id, u: clamp((q.x - shape.x) / shape.w, 0, 1), v: clamp((q.y - shape.y) / shape.h, 0, 1) };
-        }
-      }
-      const pts = worldPoints(el);
-      pts[key === "startBinding" ? 0 : pts.length - 1] = position;
-      return setPath(nearest ? { ...el, [key]: nearest } : withoutBinding(el, key), pts);
-    }
 
     function followBindings(objects, moved) {
       const byId = new Map(objects.map(el => [el.id, el]));
@@ -289,14 +289,37 @@
       setView({ x: anchor.x - world.x * zoom, y: anchor.y - world.y * zoom, zoom });
     }
 
+    function visibleArea() {
+      const canvas = svg.getBoundingClientRect();
+      const area = { left: 0, top: 0, right: canvas.width, bottom: canvas.height };
+      const controls = svg.parentElement.querySelectorAll(".tool-rail, .zoom-controls, .grid-button, .style-button, .hint-bar, .help-button");
+      for (const control of controls) {
+        const rect = control.getBoundingClientRect();
+        if (!rect.width || !rect.height) continue;
+        if (control.matches(".grid-button, .style-button")) {
+          area.top = Math.max(area.top, rect.bottom - canvas.top);
+        } else if (control.matches(".tool-rail") && getComputedStyle(control).flexDirection === "column") {
+          area.left = Math.max(area.left, rect.right - canvas.left);
+        } else {
+          area.bottom = Math.min(area.bottom, rect.top - canvas.top);
+        }
+      }
+      return area;
+    }
+
     function fit() {
       const box = union(scene.map(bounds));
-      const { width, height } = svg.getBoundingClientRect();
-      if (!width || !height) return;
       if (!box) { setView({ x: 0, y: 0, zoom: 1 }); return; }
-      const padX = Math.min(72, width * 0.075), padY = Math.min(72, height * 0.10);
-      const zoom = clamp(Math.min((width - padX * 2) / Math.max(1, box.w), (height - padY * 2) / Math.max(1, box.h)), 0.05, 1.1);
-      setView({ x: (width - box.w * zoom) / 2 - box.x * zoom, y: (height - box.h * zoom) / 2 - box.y * zoom, zoom });
+      const area = visibleArea();
+      const width = area.right - area.left, height = area.bottom - area.top;
+      if (width <= 0 || height <= 0) return;
+      const padding = Math.min(28, width * .05, height * .05);
+      const zoom = clamp(Math.min((width - padding * 2) / Math.max(1, box.w), (height - padding * 2) / Math.max(1, box.h)), 0.05, 1.1);
+      setView({
+        x: area.left + (width - box.w * zoom) / 2 - box.x * zoom,
+        y: area.top + (height - box.h * zoom) / 2 - box.y * zoom,
+        zoom
+      });
     }
 
     function commit(before) {
@@ -332,12 +355,41 @@
       onChange?.();
     }
 
-    function hit(p, target) {
+    let strokeContext;
+    const outlines = new WeakMap();
+
+    function onOutline(el, p, tolerance) {
+      const b = bounds(el);
+      const radius = tolerance + Math.max(.2, el.width ?? 2) / 2;
+      if (p.x < b.x - radius || p.x > b.x + b.w + radius || p.y < b.y - radius || p.y > b.y + b.h + radius) return false;
+      strokeContext ??= document.createElement("canvas").getContext("2d");
+      if (!strokeContext) return distance(p, perimeterPoint({ ...b, type: el.type }, p)) <= radius;
+      let outline = outlines.get(el);
+      if (!outline) {
+        if (el.type === "ellipse") {
+          outline = new Path2D();
+          outline.ellipse(b.w / 2, b.h / 2, b.w / 2, b.h / 2, 0, 0, 2 * Math.PI);
+        } else {
+          const path = rendered.get(el.id).node.querySelector("path");
+          outline = new Path2D(path.getAttribute("d"));
+        }
+        outlines.set(el, outline);
+      }
+      strokeContext.lineWidth = radius * 2;
+      strokeContext.lineJoin = "round";
+      return strokeContext.isPointInStroke(outline, p.x - el.x, p.y - el.y);
+    }
+
+    function hit(p, target, erasing = false) {
       const domId = target?.closest?.("[data-element-id],[data-id]")?.dataset;
       const direct = domId?.elementId || domId?.id;
       const tolerance = 5 / view.zoom;
       for (let i = scene.length - 1; i >= 0; i--) {
         const el = scene[i];
+        if (erasing && ["rect", "ellipse", "diamond"].includes(el.type) && ["none", "transparent"].includes(el.fill || "none")) {
+          if (onOutline(el, p, tolerance)) return el;
+          continue;
+        }
         if (el.id === direct) return el;
         const b = bounds(el);
         if (p.x < b.x - tolerance || p.x > b.x + b.w + tolerance || p.y < b.y - tolerance || p.y > b.y + b.h + tolerance) continue;
@@ -413,24 +465,27 @@
         scene = fresh ? before : scene.filter(item => item.id !== key);
         select(selected.filter(item => item !== key));
       } else {
-        if (el.text === value) return;
+        if (el.type === "text" && el.text === value) return;
         let next = { ...el, text: value };
         if (el.type === "text") {
-          const fontSize = el.fontSize || defaults.fontSize, lines = value.split(/\r?\n/);
-          const ctx = document.createElement("canvas").getContext("2d");
-          if (ctx) ctx.font = fontSize + "px " + (el.fontFamily || "sans-serif");
-          const longest = Math.max(...lines.map(line => ctx ? ctx.measureText(line).width : Array.from(line).length * fontSize * 0.62));
-          next.w = Math.max(12, Math.ceil(longest * 1.1) + 6);
-          next.h = Math.max(fontSize * 1.35, lines.length * fontSize * 1.35);
+          Object.assign(next, window.FreeDrawScene.textSize(next));
+        } else {
+          next.h = window.FreeDrawScene.heightForShapeText(next);
+          if (!fresh && el.text === value && el.h === next.h) return;
         }
         scene = scene.map(item => item.id === key ? next : item);
+        if (el.h !== next.h) scene = followBindings(scene, new Set([key]));
       }
       render();
       commit(before);
     }
 
     function cancelText(key) {
-      if (pendingText?.id === key) updateText(key, "");
+      if (pendingText?.id !== key) return;
+      scene = pendingText.before;
+      pendingText = null;
+      select(selected.filter(item => item !== key));
+      render();
     }
 
     function cancelGesture() {
@@ -447,6 +502,19 @@
 
     function capture(event) {
       try { svg.setPointerCapture(event.pointerId); } catch { /* Pointer may already be gone. */ }
+    }
+
+    function newTextAt(p) {
+      return { id: id(), type: "text", ...defaults, x: p.x, y: p.y, w: 140, h: defaults.fontSize * 1.4, text: "" };
+    }
+
+    function editNewElement(el, before) {
+      if ((el.type === "text" || el.type === "note") && onEditText) {
+        pendingText = { id: el.id, before };
+        onEditText(clone(el));
+      } else {
+        commit(before);
+      }
     }
 
     function begin(event) {
@@ -498,9 +566,8 @@
         gesture = { ...session, kind: "move" };
         return;
       }
-      const el = { id: id(), type: tool, x: p.x, y: p.y, w: 0, h: 0, ...defaults };
+      const el = tool === "text" ? newTextAt(p) : { id: id(), type: tool, x: p.x, y: p.y, w: 0, h: 0, ...defaults };
       if (tool === "note" && (!el.fill || el.fill === "none" || el.fill === "transparent")) el.fill = "#ffebad";
-      if (tool === "text") { el.text = ""; el.w = 140; el.h = el.fontSize * 1.4; }
       if (paths.has(tool)) { el.points = [[0, 0], [0, 0]]; el.fill = "none"; }
       gesture = { ...session, kind: "draw", el, pts: [p] };
       scene = [...scene, el];
@@ -508,7 +575,7 @@
     }
 
     function eraseAt(p, target) {
-      const el = hit(p, target);
+      const el = hit(p, target, true);
       if (!el) return;
       deleteObjects([el.id]);
       render();
@@ -577,7 +644,7 @@
             const pts = worldPoints(el), first = g.handle === "first";
             const opposite = pts[first ? Math.min(1, pts.length - 1) : Math.max(0, pts.length - 2)];
             const point = event.shiftKey ? shortestAngleEnd(opposite, p) : p;
-            if (el.type === "arrow") return snapEndpoint(el, first ? "startBinding" : "endBinding", point, g.before);
+            if (el.type === "arrow") return snapEndpoint(el, first ? "startBinding" : "endBinding", point, g.before, view.zoom);
             pts[first ? 0 : pts.length - 1] = point;
             return setPath(el, pts);
           });
@@ -597,8 +664,8 @@
             const endPoint = event.shiftKey ? shortestAngleEnd(g.start, p) : p;
             drawn = setPath(el, [g.start, endPoint]);
             if (el.type === "arrow") {
-              drawn = snapEndpoint(drawn, "startBinding", g.start, g.before);
-              drawn = snapEndpoint(drawn, "endBinding", endPoint, g.before);
+              drawn = snapEndpoint(drawn, "startBinding", g.start, g.before, view.zoom);
+              drawn = snapEndpoint(drawn, "endBinding", endPoint, g.before, view.zoom);
             }
           } else if (el.type !== "text") {
             let end = p;
@@ -636,16 +703,14 @@
           const delta = el.type === "pen" ? 0.15 : 94;
           el = setPath(el, [g.start, { x: g.start.x + delta, y: g.start.y + (el.type === "pen" ? 0.15 : 0) }]);
           if (el.type === "arrow") {
-            el = snapEndpoint(el, "startBinding", g.start, g.before);
-            el = snapEndpoint(el, "endBinding", { x: g.start.x + delta, y: g.start.y }, g.before);
+            el = snapEndpoint(el, "startBinding", g.start, g.before, view.zoom);
+            el = snapEndpoint(el, "endBinding", { x: g.start.x + delta, y: g.start.y }, g.before, view.zoom);
           }
         }
         scene = [...g.before, el];
         if (el.type !== "pen") { setTool("select"); select([el.id]); }
         render();
-        if (el.type === "text" && onEditText) pendingText = { id: el.id, before: g.before };
-        else commit(g.before);
-        if (el.type === "text" || el.type === "note") onEditText?.(clone(el));
+        editNewElement(el, g.before);
       } else {
         render();
         if (g.before) commit(g.before);
@@ -653,9 +718,83 @@
       cursor();
     }
 
+    function editingField(target) {
+      return target?.closest?.("input, textarea, select, [contenteditable='true'], [role='dialog']") || document.querySelector("dialog[open]");
+    }
+
+    function copySelection(cut) {
+      clipboard = selectedItems();
+      pastes = 0;
+      lastPayload = JSON.stringify({ format: "freedraw-clipboard", elements: clipboard });
+      const write = { payload: lastPayload, copied: false };
+      clipboardWrite = write;
+      try {
+        navigator.clipboard?.writeText(write.payload).then(() => { write.copied = true; }, () => {});
+      } catch { /* El navegador puede limitar el acceso al portapapeles del sistema. */ }
+      if (cut) removeSelected();
+      return write;
+    }
+
+    function copyEvent(event) {
+      if (editingField(event.target)) return;
+      const write = keyboardCopy || (selected.length && copySelection(event.type === "cut"));
+      if (!write || !event.clipboardData) return;
+      try {
+        event.clipboardData.setData("text/plain", write.payload);
+        event.preventDefault();
+        write.copied = true;
+      } catch { /* La copia interna sigue disponible. */ }
+    }
+
+    function pasteCopies(elements, payload) {
+      if (!elements.length) return;
+      pastes = payload === lastPayload ? pastes + 1 : 1;
+      lastPayload = payload;
+      addCopies(elements, 16 * pastes / view.zoom);
+    }
+
+    function pasteValue(value) {
+      if (!value) {
+        if (clipboard.length) pasteCopies(clipboard, clipboardWrite.payload);
+        return;
+      }
+      let data;
+      try { data = JSON.parse(value); } catch { /* El texto normal también se puede pegar. */ }
+      if (data?.format === "freedraw-clipboard") {
+        try {
+          const { elements } = window.FreeDrawFiles.parseBoard({ format: "freedraw", elements: data.elements });
+          pasteCopies(elements, value);
+        } catch { /* Ignora selecciones con un formato de elementos inválido. */ }
+        return;
+      }
+
+      const before = scene;
+      const rect = svg.getBoundingClientRect();
+      const center = toWorld({ x: rect.width / 2, y: rect.height / 2 });
+      const el = { ...newTextAt(center), text: value.replace(/\r\n?/g, "\n") };
+      Object.assign(el, window.FreeDrawScene.textSize(el));
+      el.x -= el.w / 2;
+      el.y -= el.h / 2;
+      scene = [...scene, el];
+      setTool("select");
+      select([el.id]);
+      render();
+      commit(before);
+    }
+
+    function pasteEvent(event) {
+      if (event.defaultPrevented || editingField(event.target)) return;
+      let value;
+      try { value = event.clipboardData?.getData("text/plain"); }
+      catch { /* Usa la última selección copiada si el sistema deniega la lectura. */ }
+      if (!value && !clipboard.length) return;
+      event.preventDefault();
+      pasteValue(value);
+    }
+
     function keydown(event) {
       const target = event.target;
-      if (event.defaultPrevented || event.isComposing || target?.closest?.("input, textarea, select, [contenteditable='true'], [role='dialog']") || document.querySelector("dialog[open]")) return;
+      if (event.defaultPrevented || event.isComposing || editingField(target)) return;
       const key = event.key.toLowerCase(), command = event.ctrlKey || event.metaKey;
       if (command && !event.altKey) {
         if (key === "z") restore(event.shiftKey ? redoStack : undoStack, event.shiftKey ? undoStack : redoStack);
@@ -663,12 +802,15 @@
         else if (key === "a") { setTool("select"); select(scene.map(el => el.id)); }
         else if (key === "d") addCopies(selectedItems(), 16 / view.zoom);
         else if ((key === "c" || key === "x") && selected.length) {
-          clipboard = selectedItems();
-          pastes = 0;
-          if (key === "x") removeSelected();
-        } else if (key === "v" && clipboard.length) {
-          pastes++;
-          addCopies(clipboard, 16 * pastes / view.zoom);
+          keyboardCopy = copySelection(key === "x");
+          return;
+        } else if (key === "v" && clipboard.length && !clipboardWrite.copied) {
+          pasteCopies(clipboard, clipboardWrite.payload);
+        } else if (key === "v" && (/Mac|iPhone|iPad/.test(navigator.platform) ? event.ctrlKey : event.metaKey)) {
+          // El modificador alternativo no genera un evento paste nativo.
+          const read = navigator.clipboard?.readText();
+          if (read) read.then(pasteValue, () => pasteValue(""));
+          else pasteValue("");
         } else return;
       } else if (key === " " && !target?.closest?.("button,a")) { space = true; cursor(); }
       else if (key === "escape") { if (gesture) cancelGesture(); else { setTool("select"); select([]); } }
@@ -695,8 +837,17 @@
     listen(svg, "lostpointercapture", event => { if (pointers.has(event.pointerId)) end(event, true); });
     listen(svg, "dblclick", event => {
       if (tool !== "select") return;
-      const el = hit(worldPoint(event), event.target);
-      if (el && editable.has(el.type)) { select([el.id]); onEditText?.(clone(el)); }
+      const p = worldPoint(event), el = hit(p, event.target);
+      if (el) {
+        if (editable.has(el.type)) { select([el.id]); onEditText?.(clone(el)); }
+        return;
+      }
+      if (event.target.closest?.("[data-handle]")) return;
+      const before = scene, text = newTextAt(p);
+      scene = [...scene, text];
+      select([text.id]);
+      render();
+      editNewElement(text, before);
     });
     listen(svg, "wheel", event => {
       event.preventDefault();
@@ -708,8 +859,14 @@
         setView({ ...view, x: view.x - x * unit, y: view.y - y * unit });
       }
     }, { passive: false });
+    listen(window, "copy", copyEvent);
+    listen(window, "cut", copyEvent);
+    listen(window, "paste", pasteEvent);
     listen(window, "keydown", keydown);
-    listen(window, "keyup", event => { if (event.code === "Space") { space = false; cursor(); } });
+    listen(window, "keyup", event => {
+      keyboardCopy = null;
+      if (event.code === "Space") { space = false; cursor(); }
+    });
     listen(window, "blur", () => { space = false; pointers.clear(); cancelGesture(); cursor(); });
     cursor();
 
@@ -728,5 +885,9 @@
     };
   }
 
-  window.createEditor = createEditor;
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = { perimeterPoint, setPath, snapEndpoint };
+  } else {
+    window.createEditor = createEditor;
+  }
 })();
