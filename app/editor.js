@@ -355,12 +355,41 @@
       onChange?.();
     }
 
-    function hit(p, target) {
+    let strokeContext;
+    const outlines = new WeakMap();
+
+    function onOutline(el, p, tolerance) {
+      const b = bounds(el);
+      const radius = tolerance + Math.max(.2, el.width ?? 2) / 2;
+      if (p.x < b.x - radius || p.x > b.x + b.w + radius || p.y < b.y - radius || p.y > b.y + b.h + radius) return false;
+      strokeContext ??= document.createElement("canvas").getContext("2d");
+      if (!strokeContext) return distance(p, perimeterPoint({ ...b, type: el.type }, p)) <= radius;
+      let outline = outlines.get(el);
+      if (!outline) {
+        if (el.type === "ellipse") {
+          outline = new Path2D();
+          outline.ellipse(b.w / 2, b.h / 2, b.w / 2, b.h / 2, 0, 0, 2 * Math.PI);
+        } else {
+          const path = rendered.get(el.id).node.querySelector("path");
+          outline = new Path2D(path.getAttribute("d"));
+        }
+        outlines.set(el, outline);
+      }
+      strokeContext.lineWidth = radius * 2;
+      strokeContext.lineJoin = "round";
+      return strokeContext.isPointInStroke(outline, p.x - el.x, p.y - el.y);
+    }
+
+    function hit(p, target, erasing = false) {
       const domId = target?.closest?.("[data-element-id],[data-id]")?.dataset;
       const direct = domId?.elementId || domId?.id;
       const tolerance = 5 / view.zoom;
       for (let i = scene.length - 1; i >= 0; i--) {
         const el = scene[i];
+        if (erasing && ["rect", "ellipse", "diamond"].includes(el.type) && ["none", "transparent"].includes(el.fill || "none")) {
+          if (onOutline(el, p, tolerance)) return el;
+          continue;
+        }
         if (el.id === direct) return el;
         const b = bounds(el);
         if (p.x < b.x - tolerance || p.x > b.x + b.w + tolerance || p.y < b.y - tolerance || p.y > b.y + b.h + tolerance) continue;
@@ -546,7 +575,7 @@
     }
 
     function eraseAt(p, target) {
-      const el = hit(p, target);
+      const el = hit(p, target, true);
       if (!el) return;
       deleteObjects([el.id]);
       render();
